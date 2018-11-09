@@ -39,6 +39,15 @@ def calcArea(x,y):
         integral[i] = np.trapz(y[i,:],x)
     return np.mean(integral), rms(integral), integral
 
+def calcPulseRatios(x, y1, y2):
+    """Calc the ratio of the pulse areas"""
+    ratio = np.zeros( len(y1[:,0]) )
+    for i in range( len(y1[:,0]) ):
+        area1 = np.trapz(y1[i,:], x)
+        area2 = np.trapz(y2[i,:], x)
+        ratio[i] = area1 / area2
+    return np.mean(ratio), rms(ratio), ratio
+        
 def calcRise(x,y):
     """Calc rise time of pulses"""
     rise = np.zeros( len(y[:,0]) )
@@ -219,13 +228,15 @@ if __name__ == "__main__":
         width_can = ROOT.TCanvas("Width_c", "width")
         integral_can = ROOT.TCanvas("Integral_c", "integral")
         peak_can = ROOT.TCanvas("Peak_c","peak")
-
+        ratio_can = ROOT.TCanvas("ratio_c", "ratio")
+        
         rise_leg = ROOT.TLegend(0.65, 0.55, 0.87, 0.77)
         fall_leg = ROOT.TLegend(0.65, 0.55, 0.87, 0.77)
         width_leg = ROOT.TLegend(0.65, 0.55, 0.87, 0.77)
         integral_leg = ROOT.TLegend(0.13, 0.65, 0.35, 0.87)
         peak_leg =  ROOT.TLegend(0.13, 0.65, 0.35, 0.87)
-
+        ratio_leg = ROOT.TLegend(0.65, 0.55, 0.87, 0.77)
+        
     average_transients = {}
     histos = [] # cos root sucks a bag of dicks
     for i, key in enumerate(y_dict.keys()):
@@ -273,23 +284,28 @@ if __name__ == "__main__":
         print ""
         #print "# Making histos to go in {0}...".format(args.outfile)
 
-        rise_h = ROOT.TH1D("Ch{0}_RiseTime".format(key), "",
+        rise_h = ROOT.TH1D("Ch{0}_RiseTime".format(key),
+                           "",
                            200,
                            0,
                            50)
-        fall_h = ROOT.TH1D("Ch{0}_FallTime".format(key), "",
+        fall_h = ROOT.TH1D("Ch{0}_FallTime".format(key),
+                           "",
                            200,
                            0,
                            100)
-        width_h = ROOT.TH1D("Ch{0}_Width".format(key), "",
+        width_h = ROOT.TH1D("Ch{0}_Width".format(key),
+                            "",
                             200,
                             0,
                             100)
-        integral_h = ROOT.TH1D("Ch{0}_Integral".format(key), "",
+        integral_h = ROOT.TH1D("Ch{0}_Integral".format(key),
+                               "",
                                200,
                                -200,
                                0)
-        peak_h = ROOT.TH1D("Ch{0}_Peak".format(key), "",
+        peak_h = ROOT.TH1D("Ch{0}_Peak".format(key),
+                           "",
                            100,
                            -10,
                            0)
@@ -356,7 +372,7 @@ if __name__ == "__main__":
             #peak_h.GetYaxis().SetRangeUser(0, 1.2*peak_h.GetMaximum())
             peak_h.Draw(opt)
             peak_leg.AddEntry(peak_h, leg_entry)
-            
+
     # Finish making comparitive canvanses
     if len(y_dict.keys()) > 1:
         rise_can.cd()
@@ -385,6 +401,24 @@ if __name__ == "__main__":
         peak_leg.Draw()
         peak_can.Update()
         peak_can.Write()
+
+        # Make ratio plots
+        keys = y_dict.keys()
+        ratio_mean, ratio_rms, ratio = calcPulseRatios(x,
+                                                       y_dict[keys[0]],
+                                                       y_dict[keys[1]])
+        print "########################"
+        print "# Pulse charge ratio"
+        print "# Chan {} / Chan {}".format(keys[0], keys[1])
+        print "########################"
+        print "#"
+        print "# Charge ratio:\t {:.2f} +/- {:.2f} [ns]".format(ratio_mean, ratio_rms)
+
+        ratio_h = ROOT.TH1D("charge_ratio", "", 50, 0, 3)
+        ratio_h.GetXaxis().SetTitle("Charge ratio")
+        for r in ratio:
+            ratio_h.Fill( r )
+        ratio_h.Write()
 
     plt.figure()
     for key in average_transients:
