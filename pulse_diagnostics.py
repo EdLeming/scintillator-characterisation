@@ -18,7 +18,7 @@ def rms(alist):
         listsum = sum((i - np.mean(alist))**2 for i in alist)
         return np.sqrt(listsum/(len(alist) - 1.0))
     else:
-        #print "More than one item needed to calculate RMS, thus returning 0"
+        #print "More than one item needed to calculate RMS, returning 0"
         return 0.
 
 def interpolate_threshold(x, y, thresh, rise=True, start=0):
@@ -168,6 +168,51 @@ def calcJitter(x1, y1, x2, y2, threshold=0.1):
         times[i] = time_1 - time_2
     return np.mean(times), np.std(times), np.std(times)/np.sqrt(2*len(y1[:,0]))
 
+def rootify_xy(x, y, scaling=1, name="", title=""):
+    '''Turn xy array into a TH1D'''
+    hist = ROOT.TH1D(name, title, len(x), x)
+    for i, entry in enumerate(y):
+        hist.SetBinContent(i, entry*scaling)
+    return hist
+
+def makeSummedPulseHisto(x, y, nEarlyBins=100):
+    """Average all pulses"""
+    tmp_hist = ROOT.TH1D("", "", len(x), x[0], x[(len(x)-1)])
+    summed_hist = ROOT.TH1D("", "", len(x), x[0], x[(len(x)-1)])
+    summed_hist.GetXaxis().SetTitle("Time [ns]")
+    summed_hist.GetYaxis().SetTitle("Summed Voltage / {0:.2f} ns".format(x[1]-x[0]))
+
+    for i in range(len(y[:,0])):
+        tmp_hist.SetContent(y[i,:-1])
+        summed_hist.Add(tmp_hist)
+        tmp_hist.Clear()
+
+    # Apply offset correction using first 100 bins
+    tmp_sum = 0
+    for i in range(nEarlyBins):
+        tmp_sum = tmp_sum + summed_hist.GetBinContent(i)
+    for i in range(summed_hist.GetNbinsX()):
+        summed_hist.SetBinContent(i, summed_hist.GetBinContent(i)-(tmp_sum/nEarlyBins))
+
+    return summed_hist
+
+def normaliseSummedPulseHisto(histo):
+    """Perform a sensible normalisation of the summed pulses
+    """
+    tmp = ROOT.TH1D(histo)
+    tmp.Scale(1./ tmp.Integral("width"))
+    lastBin = tmp.FindLastBinAbove(0.001)
+    tmp.Delete()
+
+    dx = histo.GetBinCenter(1) - histo.GetBinCenter(0)
+    normalised = ROOT.TH1D("","",lastBin, 0, histo.GetBinLowEdge(lastBin))
+    normalised.GetYaxis().SetTitle("Probabilitiy / {:.2} ns".format(dx))
+    for i in range(lastBin):
+        normalised.SetBinContent(i, histo.GetBinContent(i))
+
+    normalised.Scale( 1. / normalised.Integral("width") )
+    return normalised
+
 def dataCleaning(y):
     """Check for any transients that are clearly saturated
     """
@@ -229,6 +274,8 @@ if __name__ == "__main__":
         integral_can = ROOT.TCanvas("Integral_c", "integral")
         peak_can = ROOT.TCanvas("Peak_c","peak")
         ratio_can = ROOT.TCanvas("ratio_c", "ratio")
+        average_pulses_can = ROOT.TCanvas("avg_pulse_c", "avg_pulse")
+        normalised_pulses_can = ROOT.TCanvas("norm_pulse_c", "norm_pulse")
         
         rise_leg = ROOT.TLegend(0.65, 0.55, 0.87, 0.77)
         fall_leg = ROOT.TLegend(0.65, 0.55, 0.87, 0.77)
@@ -236,6 +283,8 @@ if __name__ == "__main__":
         integral_leg = ROOT.TLegend(0.13, 0.65, 0.35, 0.87)
         peak_leg =  ROOT.TLegend(0.13, 0.65, 0.35, 0.87)
         ratio_leg = ROOT.TLegend(0.65, 0.55, 0.87, 0.77)
+        average_pulses_leg = ROOT.TLegend(0.65, 0.55, 0.87, 0.7)
+        normalised_pulses_leg = ROOT.TLegend(0.65, 0.55, 0.87, 0.7)
         
     average_transients = {}
     histos = [] # cos root sucks a bag of dicks
@@ -250,7 +299,18 @@ if __name__ == "__main__":
         width_mean, width_rms, width = calcWidth(x,y)
         integral_mean, integral_rms, integral = calcArea(x,y)
         peak_mean, peak_rms, peak = calcPeak(x,y)
+        summed_pulses_h = makeSummedPulseHisto(x,y)
 
+        average_pulses_h = ROOT.TH1D(summed_pulses_h)
+        average_pulses_h.Scale( 1. / len(rise) )
+        average_pulses_h.GetYaxis().SetTitle("Average Voltage / {0:.2f} ns".format(x[1]-x[0]))
+        
+        normalised_pulses_h = normaliseSummedPulseHisto(summed_pulses_h)
+        
+        average_pulses_h.SetName("Ch{0}_Average_pulse".format(key))
+        normalised_pulses_h.SetName("Ch{0}_Normalised_pulse".format(key))
+
+        
         print "########################"
         print "# Pulse measurements"
         print "########################"
@@ -302,25 +362,27 @@ if __name__ == "__main__":
         integral_h = ROOT.TH1D("Ch{0}_Integral".format(key),
                                "",
                                200,
-                               -200,
+                               integral_mean+(10*integral_rms),
                                0)
         peak_h = ROOT.TH1D("Ch{0}_Peak".format(key),
                            "",
                            100,
-                           -10,
+                           peak_mean+(10*peak_rms),
                            0)
         rise_h.GetXaxis().SetTitle("Rise time [ns]")
         fall_h.GetXaxis().SetTitle("Fall time [ns]")
         width_h.GetXaxis().SetTitle("Pulse width [ns]")
         integral_h.GetXaxis().SetTitle("Pulse integral [V.ns]")
         peak_h.GetXaxis().SetTitle("Pulse height [V]")
-
+        
         rise_h.SetLineColor( colors[i] )
         fall_h.SetLineColor( colors[i] )
         width_h.SetLineColor( colors[i] )
         integral_h.SetLineColor( colors[i] )
         peak_h.SetLineColor( colors[i] )
-
+        average_pulses_h.SetLineColor( colors[i] )
+        normalised_pulses_h.SetLineColor( colors[i] )
+        
         for j, r in enumerate(rise):
             rise_h.Fill( rise[j] )
             fall_h.Fill( fall[j] )
@@ -334,13 +396,17 @@ if __name__ == "__main__":
         width_h.Write()
         integral_h.Write()
         peak_h.Write()
-
+        average_pulses_h.Write()
+        normalised_pulses_h.Write()
+        
         # Keep histos in memory
         histos.append(rise_h)
         histos.append(fall_h)
         histos.append(width_h)
         histos.append(integral_h)
         histos.append(peak_h)
+        histos.append(average_pulses_h)
+        histos.append(normalised_pulses_h)
         
         # Do we also want to draw on canvases?
         opt = ""
@@ -354,12 +420,12 @@ if __name__ == "__main__":
             rise_leg.AddEntry(rise_h, leg_entry)
             
             fall_can.cd()
-            fall_h.GetYaxis().SetRangeUser(0, 1.2*fall_h.GetMaximum())            
+            fall_h.GetYaxis().SetRangeUser(0, 1.2*fall_h.GetMaximum())
             fall_h.Draw(opt)
             fall_leg.AddEntry(fall_h, leg_entry)
             
             width_can.cd()
-            width_h.GetYaxis().SetRangeUser(0, 1.2*width_h.GetMaximum())            
+            width_h.GetYaxis().SetRangeUser(0, 1.2*width_h.GetMaximum())
             width_h.Draw(opt)
             width_leg.AddEntry(width_h, leg_entry)
             
@@ -373,6 +439,14 @@ if __name__ == "__main__":
             peak_h.Draw(opt)
             peak_leg.AddEntry(peak_h, leg_entry)
 
+            average_pulses_can.cd()
+            average_pulses_h.Draw(opt)
+            average_pulses_leg.AddEntry(average_pulses_h, leg_entry)
+
+            normalised_pulses_can.cd()
+            normalised_pulses_h.Draw(opt)
+            normalised_pulses_leg.AddEntry(normalised_pulses_h, leg_entry)
+            
     # Finish making comparitive canvanses
     if len(y_dict.keys()) > 1:
         rise_can.cd()
@@ -402,6 +476,16 @@ if __name__ == "__main__":
         peak_can.Update()
         peak_can.Write()
 
+        average_pulses_can.cd()
+        average_pulses_leg.Draw()
+        average_pulses_can.Update()
+        average_pulses_can.Write()
+
+        normalised_pulses_can.cd()
+        normalised_pulses_leg.Draw()
+        normalised_pulses_can.Update()
+        normalised_pulses_can.Write()
+        
         # Make ratio plots
         keys = y_dict.keys()
         ratio_mean, ratio_rms, ratio = calcPulseRatios(x,
@@ -412,7 +496,7 @@ if __name__ == "__main__":
         print "# Chan {} / Chan {}".format(keys[0], keys[1])
         print "########################"
         print "#"
-        print "# Charge ratio:\t {:.2f} +/- {:.2f} [ns]".format(ratio_mean, ratio_rms)
+        print "# Charge ratio:\t {:.2f} +/- {:.2f}".format(ratio_mean, ratio_rms)
 
         ratio_h = ROOT.TH1D("charge_ratio", "", 50, 0, 3)
         ratio_h.GetXaxis().SetTitle("Charge ratio")
