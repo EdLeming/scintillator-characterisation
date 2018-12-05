@@ -9,6 +9,7 @@ def butter_lowpass(cutoff, fs, order=5):
     return b, a
 
 def butter_lowpass_filter(data, fs, cutoff=750e6, order=5):
+    print fs, cutoff
     b, a = butter_lowpass(cutoff, fs, order=order)
     y = signal.filtfilt(b, a, data)
     return y
@@ -57,7 +58,7 @@ if __name__ == "__main__":
     data = y_dict[args.channel]
     data = data[args.event_index,:]
     start = time.time()
-    y = butter_lowpass_filter(data, cutoff, fs, order=order)
+    y = butter_lowpass_filter(data, fs, cutoff=cutoff, order=order)
     print "Took {0:.3}s to run filter".format(time.time() - start)
     
     plt.subplot(2, 1, 2)
