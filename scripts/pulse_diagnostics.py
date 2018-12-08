@@ -1,179 +1,11 @@
 import ROOT
 import numpy as np
+import utils.transient_calculations as calc
 
 colors = [ROOT.kBlack, ROOT.kRed-4, 
           ROOT.kGreen+2, ROOT.kCyan+2,
           ROOT.kBlue, ROOT.kMagenta+1,
           ROOT.kGray, ROOT.kOrange+7]
-
-def positive_check(y):
-    if np.abs(max(y[0,:])) > np.abs(min(y[0,:])):
-        return True
-    else:
-        return False
-
-def rms(alist):
-    '''Calc rms of 1d array'''
-    if len(alist) > 1:
-        listsum = sum((i - np.mean(alist))**2 for i in alist)
-        return np.sqrt(listsum/(len(alist) - 1.0))
-    else:
-        #print "More than one item needed to calculate RMS, returning 0"
-        return 0.
-
-def interpolate_threshold(x, y, thresh, rise=True, start=0):
-    """Calculate the threshold crossing using a linear interpolation"""
-    if rise == True:
-        index_high = np.where( y > thresh )[0][start]
-    else:
-        index_high = np.where( y < thresh )[0][start]
-    index_low = index_high - 1
-    dydx = (y[index_high] - y[index_low])/(x[index_high]-x[index_low])
-    time = x[index_low] + (thresh - y[index_low]) / dydx
-    return time
-
-def calcArea(x,y):
-    """Calc area of pulses"""
-    integral = np.zeros( len(y[:,0]) )
-    for i in range(len(y[:,0])):
-        integral[i] = np.trapz(y[i,:],x)
-    return np.mean(integral), rms(integral), integral
-
-def calcPulseRatios(x, y1, y2):
-    """Calc the ratio of the pulse areas"""
-    ratio = np.zeros( len(y1[:,0]) )
-    for i in range( len(y1[:,0]) ):
-        area1 = np.trapz(y1[i,:], x)
-        area2 = np.trapz(y2[i,:], x)
-        ratio[i] = area1 / area2
-    return np.mean(ratio), rms(ratio), ratio
-        
-def calcRise(x,y):
-    """Calc rise time of pulses"""
-    rise = np.zeros( len(y[:,0]) )
-    rising = True
-    f = positive_check(y)
-    if f:
-        rising = False
-
-    for i, event in enumerate(y):
-        if f:
-            m = max(event)
-        else:
-            m = min(event)
-        m_index = np.where(event == m)[0][0]
-        lo_thresh = m*0.1
-        hi_thresh = m*0.9
-        y_reverse = event[m_index+1:0:-1]
-        try:
-            low = interpolate_threshold(x[:m_index+1], y_reverse, lo_thresh, rise=rising)
-            high = interpolate_threshold(x[:m_index+1], y_reverse, hi_thresh, rise=rising)
-        except:
-            continue
-        rise[i] = low - high
-    return np.mean(rise), rms(rise), rise
-
-def calcFall(x,y):
-    """Calc fall time of pulses"""
-    fall = np.zeros( len(y[:,0]) )
-    rising = True
-    f = positive_check(y)
-    if f:
-        rising = False
-
-    for i, event in enumerate(y):
-        if f:
-            m = max(event)
-        else:
-            m = min(event)
-        m_index = np.where(event == m)[0][0]
-        lo_thresh = m*0.1
-        hi_thresh = m*0.9
-        try:
-            low = interpolate_threshold(x[m_index-1:], event[m_index-1:], lo_thresh, rise=rising)
-            high = interpolate_threshold(x[m_index-1:], event[m_index-1:], hi_thresh, rise=rising)
-        except:
-            continue
-        fall[i] = low - high
-    return np.mean(fall), rms(fall), fall
-        
-def calcWidth(x,y):
-    """Calc width of pulses"""
-    width = np.zeros( len(y[:,0]) )
-    f = positive_check(y)
-    if f == True:
-        flag_first = True
-        flag_second = False
-    else:
-        flag_first = False
-        flag_second = True
-
-    for i, event in enumerate(y):
-        if f:
-            m = max(event)
-        else:
-            m = min(event)
-        m_index = np.where(event == m)[0][0]
-        thresh = m*0.5
-        try:
-            first = interpolate_threshold(x[:m_index+1], event[:m_index+1], thresh, rise=flag_first)
-            second = interpolate_threshold(x[m_index-1:], event[m_index-1:], thresh, rise=flag_second)
-        except:
-            continue
-        width[i] = second - first
-    return np.mean(width), rms(width), width
-
-def calcPeak(x,y):
-    """Calc min amplitude of pulses"""
-    peak = np.zeros( len(y[:,0]) )
-    f = positive_check(y)
-    if f == True:
-        for i in range(len(y[:,0])):
-            peak[i] = max(y[i,:])
-    else:
-        for i in range(len(y[:,0])):
-            peak[i] = min(y[i,:])
-    return np.mean(peak), rms(peak), peak
-
-def calcSNR(x,y,nSamples=50):
-    """Calc the signal-to-noise ratio of a set of pulses"""
-    snr = np.zeros(len(y[:,0]))
-    f = positive_check(y)
-    if f == True:
-        for i in range(len(y[:,0])):
-            snr[i] = np.max(y[i,:]) / rms(y[i,:nSamples]) 
-    else:
-        for i in range(len(y[:,0])):
-            snr[i] = np.abs( np.min(y[i,:]) / rms(y[i,:nSamples]) )
-    return np.mean(snr), snr
-
-def calcSinglePeak(pos_check, y_arr):
-    """Calculate peak values for single trace inputs can be positive or negative."""
-    if pos_check == True:
-        m = max(y_arr)
-    else:
-        m = min(y_arr)
-    return m
-
-def calcJitter(x1, y1, x2, y2, threshold=0.1):
-    """Calc jitter between trig and signal using CFD"""
-    p1 = positive_check(y1)
-    p2 = positive_check(y2)
-    times = np.zeros(len(y1[:,0]))
-    for i in range(len(y1[:,0])):
-        m1 = calcSinglePeak(p1, y1[i,:])
-        m2 = calcSinglePeak(p2, y2[i,:])
-        time_1 = interpolate_threshold(x1, y1[i,:], threshold*m1, rise=p1)
-        time_2 = interpolate_threshold(x2, y2[i,:], threshold*m2, rise=p2)
-        times[i] = time_1 - time_2
-    return np.mean(times), np.std(times), np.std(times)/np.sqrt(2*len(y1[:,0]))
-
-def rootify_xy(x, y, scaling=1, name="", title=""):
-    '''Turn xy array into a TH1D'''
-    hist = ROOT.TH1D(name, title, len(x), x)
-    for i, entry in enumerate(y):
-        hist.SetBinContent(i, entry*scaling)
-    return hist
 
 def makeSummedPulseHisto(x, y, nEarlyBins=100):
     """Average all pulses"""
@@ -218,10 +50,10 @@ def dataCleaning(y):
     """
     indices = []
     sig_to_noise, saturated = 0, 0
-    f = positive_check(y)
+    f = calc.positiveCheck(y)
     for i, event in enumerate(y):
         if f == True:
-            sn = np.abs( np.min(event) / rms(event[:20]) )
+            sn = np.abs( np.min(event) / calc.rms(event[:20]) )
             if sn <= 4:
                 sig_to_noise = sig_to_noise + 1
                 continue
@@ -229,7 +61,7 @@ def dataCleaning(y):
                 saturated = saturated + 1
                 continue
         else:
-            sn = np.abs( np.min(event) / rms(event[:20]) )
+            sn = np.abs( np.min(event) / calc.rms(event[:20]) )
             if sn <= 4:
                 sig_to_noise = sig_to_noise + 1
                 continue
@@ -247,7 +79,7 @@ def dataCleaning(y):
 if __name__ == "__main__":
     import argparse
     import matplotlib.pyplot as plt
-    import FileReader as fr
+    import utils.file_reader as file_reader
     parser = argparse.ArgumentParser("Script to run diagnostrics on pulse shapes")
     parser.add_argument('infile', type=str,
                         help="Basepath to file(s) to be read in")
@@ -264,12 +96,12 @@ if __name__ == "__main__":
     outfile = ROOT.TFile(args.outfile, "RECREATE")
     
     # Read in data and loop over each save channel
-    myFileReader = fr.FileReader('')
+    myFileReader = file_reader.FileReader('')
     extension = args.infile.split("/")[-1].split(".")[-1]
     if extension == "h5":
-        myFileReader = fr.Hdf5FileReader(args.infile)
+        myFileReader = file_reader.Hdf5FileReader(args.infile)
     else:
-        myFileReader = fr.TraceFileReader(args.infile)
+        myFileReader = file_reader.TraceFileReader(args.infile)
     x, y_dict = myFileReader.get_xy_data(nevents=args.no_events)
     
     # Make some Canvases to hold results
@@ -300,11 +132,11 @@ if __name__ == "__main__":
         print "#############################"
         y = dataCleaning(y_dict[key])
         
-        rise_mean, rise_rms, rise = calcRise(x,y)
-        fall_mean, fall_rms, fall = calcFall(x,y)
-        width_mean, width_rms, width = calcWidth(x,y)
-        integral_mean, integral_rms, integral = calcArea(x,y)
-        peak_mean, peak_rms, peak = calcPeak(x,y)
+        rise_mean, rise_rms, rise = calc.calcRise(x,y)
+        fall_mean, fall_rms, fall = calc.calcFall(x,y)
+        width_mean, width_rms, width = calc.calcWidth(x,y)
+        integral_mean, integral_rms, integral = calc.calcArea(x,y)
+        peak_mean, peak_rms, peak = calc.calcPeak(x,y)
         summed_pulses_h = makeSummedPulseHisto(x,y)
 
         average_pulses_h = ROOT.TH1D(summed_pulses_h)
@@ -333,11 +165,11 @@ if __name__ == "__main__":
         summed_pulse = np.array([summed_pulse / j])
         average_transients["Channel {:d}".format(key)] = summed_pulse
         
-        rise_avg_mean, rise_avg_rms, _ = calcRise(x, summed_pulse)
-        fall_avg_mean, fall_avg_rms, _ = calcFall(x, summed_pulse)
-        width_avg_mean, width_avg_rms, _ = calcWidth(x, summed_pulse)
-        integral_avg_mean, integral_avg_rms, _ = calcArea(x,y)
-        peak_avg_mean, peak_avg_rms, _ = calcPeak(x,y)
+        rise_avg_mean, rise_avg_rms, _ = calc.calcRise(x, summed_pulse)
+        fall_avg_mean, fall_avg_rms, _ = calc.calcFall(x, summed_pulse)
+        width_avg_mean, width_avg_rms, _ = calc.calcWidth(x, summed_pulse)
+        integral_avg_mean, integral_avg_rms, _ = calc.calcArea(x,y)
+        peak_avg_mean, peak_avg_rms, _ = calc.calcPeak(x,y)
 
         print "#"
         print "# Averaged pulse:"
@@ -494,9 +326,9 @@ if __name__ == "__main__":
         
         # Make ratio plots
         keys = y_dict.keys()
-        ratio_mean, ratio_rms, ratio = calcPulseRatios(x,
-                                                       y_dict[keys[0]],
-                                                       y_dict[keys[1]])
+        ratio_mean, ratio_rms, ratio = calc.calcPulseRatios(x,
+                                                            y_dict[keys[0]],
+                                                            y_dict[keys[1]])
         print "########################"
         print "# Pulse charge ratio"
         print "# Chan {} / Chan {}".format(keys[0], keys[1])
@@ -517,4 +349,6 @@ if __name__ == "__main__":
     plt.xlabel("Time [ns]")
     plt.ylabel("Arbitrary Units")
     plt.legend()
-    plt.show()
+    #plt.show()
+    
+    print "Results written to: {0}".format(args.outfile)

@@ -1,6 +1,7 @@
 import ROOT
-import pulse_diagnostics as pd
 import numpy as np
+
+import utils.transient_calculations as calc
 
 def calculate_leading_edge_timestamp(x, y, thresh, rise=False):
     '''
@@ -13,10 +14,10 @@ def calculate_leading_edge_timestamp(x, y, thresh, rise=False):
     m_index = np.where(y == m)[0][0]
     y_reverse = y[m_index+1:0:-1]
     try:
-        timestamp = pd.interpolate_threshold(x[:m_index+1],
-                                             y_reverse,
-                                             thresh,
-                                             rise=rise)
+        timestamp = calc.interpolateThreshold(x[:m_index+1],
+                                               y_reverse,
+                                               thresh,
+                                               rise=rise)
     except:
         timestamp = -999
     return timestamp
@@ -25,7 +26,7 @@ if __name__ == "__main__":
     import sys
     import argparse
     import matplotlib.pyplot as plt
-    import FileReader as fr
+    import utils.file_reader as file_reader
     parser = argparse.ArgumentParser("Script to run diagnostrics on pulse shapes")
     parser.add_argument('infile', type=str,
                         help="File(s) to be read in")
@@ -43,12 +44,12 @@ if __name__ == "__main__":
 
     ##########################
     # Read in data and loop over each save channel
-    myFileReader = fr.FileReader('')
+    myFileReader = file_reader.FileReader('')
     extension = args.infile.split("/")[-1].split(".")[-1]
     if extension == "h5":
-        myFileReader = fr.Hdf5FileReader(args.infile)
+        myFileReader = file_reader.Hdf5FileReader(args.infile)
     else:
-        myFileReader = fr.TraceFileReader(args.infile)
+        myFileReader = file_reader.TraceFileReader(args.infile)
     x, y_dict = myFileReader.get_xy_data(nevents=args.no_events)
 
     ##########################
@@ -63,8 +64,8 @@ if __name__ == "__main__":
         print "Active channels have different size datasets"
         sys.exit(0)
     # Check the pulse polarity and set rise / fall appropriately
-    f1 = pd.positive_check(y_dict[keys[0]])
-    f2 = pd.positive_check(y_dict[keys[1]])
+    f1 = calc.positiveCheck(y_dict[keys[0]])
+    f2 = calc.positiveCheck(y_dict[keys[1]])
     rise_1 = False
     if f1:
         rise_1 = True

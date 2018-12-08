@@ -1,25 +1,25 @@
 import warnings
 import numpy as np
-import scipy.signal as signal
+from scipy.signal import butter, filtfilt, freqz
 import matplotlib.pyplot as plt
 
 def butter_lowpass(cutoff, fs, order=5):
     nyq = 0.5 * fs
     normal_cutoff = cutoff / nyq
-    b, a = signal.butter(order, normal_cutoff, btype='low', analog=False)
+    b, a = butter(order, normal_cutoff, btype='low', analog=False)
     return b, a
 
 def butter_lowpass_filter(data, fs, cutoff=750e6, order=5):
     warnings.filterwarnings("ignore")
     b, a = butter_lowpass(cutoff, fs, order=order)
-    y = signal.filtfilt(b, a, data)
+    y = filtfilt(b, a, data)
     return y
 
 
 if __name__ == "__main__":
     import argparse
     import time
-    import FileReader as fr
+    import utils.file_reader as file_reader
     parser = argparse.ArgumentParser("Calculate the time response of a PMT from LED data")
     parser.add_argument('infile', type=str,
                         help="Data file to be read in")
@@ -34,12 +34,12 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # Read in data and loop over each save channel
-    myFileReader = fr.FileReader('')
+    myFileReader = file_reader.FileReader('')
     extension = args.infile.split("/")[-1].split(".")[-1]
     if extension == "h5":
-        myFileReader = fr.Hdf5FileReader(args.infile)
+        myFileReader = file_reader.Hdf5FileReader(args.infile)
     else:
-        myFileReader = fr.TraceFileReader(args.infile)
+        myFileReader = file_reader.TraceFileReader(args.infile)
     x, y_dict = myFileReader.get_xy_data(nevents=args.event_index)
     
     # Filter requirements.
@@ -51,7 +51,7 @@ if __name__ == "__main__":
     b, a = butter_lowpass(cutoff, fs, order)
     
     # Plot the frequency response.
-    w, h = signal.freqz(b, a, worN=8000)
+    w, h = freqz(b, a, worN=8000)
     plt.subplot(2, 1, 1)
     plt.plot(0.5*fs*w/np.pi, np.abs(h), 'b')
     plt.plot(cutoff, 0.5*np.sqrt(2), 'ko')
