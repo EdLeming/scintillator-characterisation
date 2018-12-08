@@ -247,10 +247,10 @@ def dataCleaning(y):
 if __name__ == "__main__":
     import argparse
     import matplotlib.pyplot as plt
-    from FileReader import read_h5
+    import FileReader as fr
     parser = argparse.ArgumentParser("Script to run diagnostrics on pulse shapes")
     parser.add_argument('infile', type=str,
-                        help="File(s) to be read in")
+                        help="Basepath to file(s) to be read in")
     parser.add_argument('outfile', type=str,
                         help="Name of output (root) file to be generated")
     parser.add_argument('-n', '--no_events', type=int, default=10000,
@@ -264,8 +264,14 @@ if __name__ == "__main__":
     outfile = ROOT.TFile(args.outfile, "RECREATE")
     
     # Read in data and loop over each save channel
-    x,y_dict = read_h5(args.infile, nevents=args.no_events)
-
+    myFileReader = fr.FileReader('')
+    extension = args.infile.split("/")[-1].split(".")[-1]
+    if extension == "h5":
+        myFileReader = fr.Hdf5FileReader(args.infile)
+    else:
+        myFileReader = fr.TraceFileReader(args.infile)
+    x, y_dict = myFileReader.get_xy_data(nevents=args.no_events)
+    
     # Make some Canvases to hold results
     if len(y_dict.keys()) > 1:
         rise_can = ROOT.TCanvas("Rise_c", "rise")

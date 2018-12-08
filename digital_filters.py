@@ -1,3 +1,4 @@
+import warnings
 import numpy as np
 import scipy.signal as signal
 import matplotlib.pyplot as plt
@@ -9,7 +10,7 @@ def butter_lowpass(cutoff, fs, order=5):
     return b, a
 
 def butter_lowpass_filter(data, fs, cutoff=750e6, order=5):
-    print fs, cutoff
+    warnings.filterwarnings("ignore")
     b, a = butter_lowpass(cutoff, fs, order=order)
     y = signal.filtfilt(b, a, data)
     return y
@@ -18,7 +19,7 @@ def butter_lowpass_filter(data, fs, cutoff=750e6, order=5):
 if __name__ == "__main__":
     import argparse
     import time
-    from FileReader import read_h5
+    import FileReader as fr
     parser = argparse.ArgumentParser("Calculate the time response of a PMT from LED data")
     parser.add_argument('infile', type=str,
                         help="Data file to be read in")
@@ -33,7 +34,13 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # Read in data and loop over each save channel
-    x,y_dict = read_h5(args.infile, nevents=args.event_index+1)
+    myFileReader = fr.FileReader('')
+    extension = args.infile.split("/")[-1].split(".")[-1]
+    if extension == "h5":
+        myFileReader = fr.Hdf5FileReader(args.infile)
+    else:
+        myFileReader = fr.TraceFileReader(args.infile)
+    x, y_dict = myFileReader.get_xy_data(nevents=args.event_index)
     
     # Filter requirements.
     order = args.order
@@ -56,7 +63,7 @@ if __name__ == "__main__":
                                 
     # Filter the data, and plot both the original and filtered signals.
     data = y_dict[args.channel]
-    data = data[args.event_index,:]
+    data = data[args.event_index-1,:]
     start = time.time()
     y = butter_lowpass_filter(data, fs, cutoff=cutoff, order=order)
     print "Took {0:.3}s to run filter".format(time.time() - start)

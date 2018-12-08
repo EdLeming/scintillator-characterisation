@@ -54,7 +54,8 @@ def peakFinder(x, y, thresh=-0.07, positive=False, min_deltaT=8., plot=False):
 if __name__ == "__main__":
     import argparse
     import time
-    from FileReader import read_h5
+    import sys
+    import FileReader as fr
     parser = argparse.ArgumentParser("Calculate the time response of a PMT from LED data")
     parser.add_argument('infile', type=str,
                         help="File(s) to be read in")
@@ -68,11 +69,15 @@ if __name__ == "__main__":
                         help="Plot multi-peak events")
     args = parser.parse_args()    
     
-    # Read in data and loop over each save channel
-    start = time.time()
-    x,y_dict = read_h5(args.infile, nevents=args.no_events)
-    print "Took {0:.2f}s to read {1:d} events from disk".format(time.time()-start, args.no_events)
-    
+    # Read in data and loopg over each save channel
+    myFileReader = fr.FileReader('')
+    extension = args.infile.split("/")[-1].split(".")[-1]
+    if extension == "h5":
+        myFileReader = fr.Hdf5FileReader(args.infile)
+    else:
+        myFileReader = fr.TraceFileReader(args.infile)
+    x, y_dict = myFileReader.get_xy_data(nevents=args.no_events)
+
     y=y_dict[args.channel]
     fs = 1./ ((x[1]-x[0])*1e-9)
 
@@ -81,8 +86,8 @@ if __name__ == "__main__":
     outfile = ROOT.TFile(args.outfile, "RECREATE")
     peaks_h = ROOT.TH1D("EventTimes", "", len(x)-1, x)
     peaks_h.GetXaxis().SetTitle("Time [ns]")
+
     # Do looping
-    counter = 0
     start = time.time()
     for i in range(args.no_events):
         clean = filt.butter_lowpass_filter(y[i,:], fs, cutoff=0.5e9)
@@ -94,11 +99,10 @@ if __name__ == "__main__":
             continue
         for peak in peaks:
             peaks_h.Fill(x[int(peak)])
-        counter = counter + 1
         if i % 10000 == 0 and i is not 0:
             print "{0} events processed".format(i) 
     end = time.time()
-    print "{0} events took {1:.2f}s to process [{2:.4f} s/evt]".format(i,
+    print "{0} events took {1:.2f}s to process [{2:.4f} s/evt]".format(i+1,
                                                                        (end-start),
-                                                                       (end-start)/i)
+                                                                       (end-start)/(i+1))
     peaks_h.Write()

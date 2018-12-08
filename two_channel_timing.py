@@ -25,7 +25,7 @@ if __name__ == "__main__":
     import sys
     import argparse
     import matplotlib.pyplot as plt
-    from FileReader import read_h5
+    import FileReader as fr
     parser = argparse.ArgumentParser("Script to run diagnostrics on pulse shapes")
     parser.add_argument('infile', type=str,
                         help="File(s) to be read in")
@@ -43,7 +43,13 @@ if __name__ == "__main__":
 
     ##########################
     # Read in data and loop over each save channel
-    x,y_dict = read_h5(args.infile, nevents=args.no_events)
+    myFileReader = fr.FileReader('')
+    extension = args.infile.split("/")[-1].split(".")[-1]
+    if extension == "h5":
+        myFileReader = fr.Hdf5FileReader(args.infile)
+    else:
+        myFileReader = fr.TraceFileReader(args.infile)
+    x, y_dict = myFileReader.get_xy_data(nevents=args.no_events)
 
     ##########################
     # Check we can use the data in this file
