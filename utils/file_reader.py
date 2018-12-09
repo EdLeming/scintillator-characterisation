@@ -176,21 +176,33 @@ class TraceFileReader(FileReader):
         # Read the data from file
         f.seek(0,0) 
         binary_data = f.read(fp_size*nevents)
-        
+
+        # If we're dealing with a large dataset use a memory map
+        if nevents < 1e5:
+            self._channel_data[channel] = np.zeros( (nevents, nsamples), dtype=np.int8 )
+        else:
+            self._channel_data[channel] = np.memmap('memmapped_ch{0}.dat'.format(channel),
+                                                    dtype=np.float32,
+                                                    mode='w+',
+                                                    shape=(nevents, nsamples))
         # Unpack the binary data string
         # Note: This bit is SLOW, limited by python looping itself - replacing the numpy stuff
         # with pass in the loop yields a < 10% speedup.
-        y = np.zeros( (nevents, nsamples), dtype=np.int8 )
         for i, section in enumerate(chunked(binary_data, fp_size)):
             try:
-                y[i, :] = np.fromstring(section[header_size:], count=nsamples, dtype=np.int8)
+                #y[i, :] = np.fromstring(section[header_size:], count=nsamples, dtype=np.int8)
+                bit_scale = np.fromstring(section[header_size:],
+                                          count=nsamples,
+                                          dtype=np.int8)*dy - y_off
+                
+                self._channel_data[channel][i, :] = np.array(bit_scale*dy, dtype=np.float32) - y_off
             except Exception as e:
                 print "Problem reading trace {0}: {1}".format(i, e)
                 continue
 
+        del binary_data
         f.close()
         self._x = np.linspace(0, dx*nsamples, num=nsamples)*1e9 
-        self._channel_data[channel] = y*dy - y_off
 
         
 def chunked(iterable, n, fillvalue=''):
@@ -231,10 +243,10 @@ if __name__ == "__main__":
 
     figures = []
     fig = plt.figure(figsize=(10,6))
-    for chan in y:
-        plt.subplot(len(y.keys()), 1, chan)
-        for i in range(events-1):
-            plt.plot(x,y[chan][i,:])
+    for i, chan in enumerate(y):
+        plt.subplot(len(y.keys()), 1, i+1)
+        for j in range(events-1):
+            plt.plot(x,y[chan][j,:])
         plt.xlabel('Time (ns)')
         plt.ylabel('Voltage (V)')
         plt.title("Channel {0}".format(chan))
