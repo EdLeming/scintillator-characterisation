@@ -179,31 +179,25 @@ class TraceFileReader(FileReader):
 
         # If we're dealing with a large dataset use a memory map
         if nevents < 1e5:
-            self._channel_data[channel] = np.zeros( (nevents, nsamples), dtype=np.int8 )
+            y = np.zeros( (nevents, nsamples), dtype=np.int8 )
         else:
-            self._channel_data[channel] = np.memmap('memmapped_ch{0}.dat'.format(channel),
-                                                    dtype=np.float32,
-                                                    mode='w+',
-                                                    shape=(nevents, nsamples))
+            y = np.memmap('memmapped_ch{0}.dat'.format(channel),
+                          dtype=np.float32,
+                          mode='w+',
+                          shape=(nevents, nsamples))
         # Unpack the binary data string
         # Note: This bit is SLOW, limited by python looping itself - replacing the numpy stuff
         # with pass in the loop yields a < 10% speedup.
         for i, section in enumerate(chunked(binary_data, fp_size)):
             try:
-                #y[i, :] = np.fromstring(section[header_size:], count=nsamples, dtype=np.int8)
-                bit_scale = np.fromstring(section[header_size:],
-                                          count=nsamples,
-                                          dtype=np.int8)*dy - y_off
-                
-                self._channel_data[channel][i, :] = np.array(bit_scale*dy, dtype=np.float32) - y_off
+                y[i, :] = np.fromstring(section[header_size:], count=nsamples, dtype=np.int8)
             except Exception as e:
                 print "Problem reading trace {0}: {1}".format(i, e)
                 continue
 
-        del binary_data
-        f.close()
+        self._channel_data[channel] = y*dy - y_off
         self._x = np.linspace(0, dx*nsamples, num=nsamples)*1e9 
-
+        f.close()
         
 def chunked(iterable, n, fillvalue=''):
     args = [iter(iterable)] * n
