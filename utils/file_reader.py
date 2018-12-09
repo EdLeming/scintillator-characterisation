@@ -173,29 +173,40 @@ class TraceFileReader(FileReader):
             nevents = nTraces
             print "Returning {0:d} traces - the full dataset in this file". format(nevents)
             
-        # Read the data from file
-        f.seek(0,0) 
-        binary_data = f.read(fp_size*nevents)
-
+        # Make containers for the data sets
         # If we're dealing with a large dataset use a memory map
-        if nevents < 1e5:
-            y = np.zeros( (nevents, nsamples), dtype=np.int8 )
+        if nevents*nsamples < 2e8:
+            y = np.zeros( (nevents, nsamples), dtype=np.float32 )
         else:
             y = np.memmap('memmapped_ch{0}.dat'.format(channel),
                           dtype=np.float32,
                           mode='w+',
                           shape=(nevents, nsamples))
-        # Unpack the binary data string
-        # Note: This bit is SLOW, limited by python looping itself - replacing the numpy stuff
-        # with pass in the loop yields a < 10% speedup.
-        for i, section in enumerate(chunked(binary_data, fp_size)):
-            try:
-                y[i, :] = np.fromstring(section[header_size:], count=nsamples, dtype=np.int8)
-            except Exception as e:
-                print "Problem reading trace {0}: {1}".format(i, e)
-                continue
+        
+        # Loop over the file reads so binary_data is never too large
+        counter = 0
+        max_read = int(5e4)
+        event_chunks = np.full((nevents / max_read), max_read)
+        if nevents % max_read != 0:
+            event_chunks = np.append(event_chunks, nevents % max_read)
 
-        self._channel_data[channel] = y*dy - y_off
+        # Set file pointer back to the start
+        f.seek(0,0)
+        # Loop over event chunks
+        for chunk in event_chunks:
+            # Read the data from file
+            binary_data = f.read(fp_size*chunk)
+            # Unpack the binary data string
+            # Note: This bit is SLOW, limited by python looping itself - replacing the numpy stuff
+            # with pass yields a < 10% speedup.
+            for section in chunked(binary_data, fp_size):
+                try:
+                    y[counter, :] = np.fromstring(section[header_size:], count=nsamples, dtype=np.int8)*dy - y_off
+                except Exception as e:
+                    print "Problem reading trace {0}: {1}".format(counter, e)
+                counter = counter + 1
+
+        self._channel_data[channel] = y
         self._x = np.linspace(0, dx*nsamples, num=nsamples)*1e9 
         f.close()
         
