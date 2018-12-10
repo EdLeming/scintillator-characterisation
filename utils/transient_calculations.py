@@ -1,5 +1,6 @@
 import ROOT
 import numpy as np
+import matplotlib.pyplot as plt
 
 colors = [ROOT.kBlack, ROOT.kRed-4, 
           ROOT.kGreen+2, ROOT.kCyan+2,
@@ -168,25 +169,6 @@ def calcJitter(x1, y1, x2, y2, threshold=0.1):
         times[i] = time_1 - time_2
     return np.mean(times), np.std(times), np.std(times)/np.sqrt(2*len(y1[:,0]))
 
-def calcLeadingEdgeTimestamp(x, y, thresh, peak_indicies, rise=False):
-    '''
-    Step back from peak to get the most noise-free timestamp
-    '''
-    if rise:
-        m = max(y)
-    else:
-        m = min(y)
-    m_index = np.where(y == m)[0][0]
-    y_reverse = y[m_index+1:0:-1]
-    try:
-        timestamp = pd.interpolate_threshold(x[:m_index+1],
-                                             y_reverse,
-                                             thresh,
-                                             rise=rise)
-    except:
-        timestamp = -999
-    return timestamp
-
 
 def rootifyXY(x, y, scaling=1, name="", title=""):
     '''Turn xy array into a TH1D'''
@@ -195,7 +177,7 @@ def rootifyXY(x, y, scaling=1, name="", title=""):
         hist.SetBinContent(i, entry*scaling)
     return hist
 
-def peakFinder(x, y, thresh=-0.07, positive=False, min_deltaT=8., plot=False):
+def peakFinder(x, y, thresh=-0.075, positive=False, min_deltaT=10., plot=False):
     '''
     A peak finding algorithm
     '''
@@ -218,7 +200,7 @@ def peakFinder(x, y, thresh=-0.07, positive=False, min_deltaT=8., plot=False):
         else:
             peak = min(y[start_indicies[i]:stop_indicies[i]])
         peak_indicies[i] = (np.where(y[start_indicies[i]:stop_indicies[i]] == peak )[0][0]
-                            + start_indicies[i])
+                                + start_indicies[i])
     # Loop through indicies and remove any within min_deltaT of each other
     dx = x[1] - x[0]
     peak_check = True
@@ -228,13 +210,38 @@ def peakFinder(x, y, thresh=-0.07, positive=False, min_deltaT=8., plot=False):
             peak_indicies = np.delete(peak_indicies, too_close[0]+1)
         else:
             peak_check = False
-
+    
+    # Convert peaks to ints
+    peak_indicies = [int(peak) for peak in peak_indicies]
+    
     # Some plotting stuff - probably delete after debugging
     if plot and peak_indicies.size > 1:
-        x_select = [x[int(i)] for i in peak_indicies]
-        y_select = [y[int(i)] for i in peak_indicies]
+        x_select = [x[i] for i in peak_indicies]
+        y_select = [y[i] for i in peak_indicies]
         plt.plot(x, y)
         plt.plot(x_select, y_select, 'x')
-        plt.axhline(thresh, x[0], x[-1], linestyle="--", linewidth=0.5, alpha=0.5)
+        plt.axhline(thresh, 0, 1, linestyle="--", linewidth=0.5, alpha=0.5)
         plt.show()
     return peak_indicies
+
+def calcLeadingEdgeTimestamp(x, y, peak_index, thresh, positive=False, plot=False):
+    '''
+    Step back from peak to minimise noise contributions
+    '''
+    rise=True
+    if positive:
+        rise=False
+    x_select = x[:peak_index+1]
+    y_reverse = y[peak_index+1:0:-1]
+    pick_off = interpolateThreshold(x_select,
+                                    y_reverse,
+                                    thresh,
+                                    rise=rise)
+
+    timestamp = x[peak_index+1] - pick_off
+    if plot:
+        plt.plot(x, y)
+        plt.axvline(timestamp, 0, 1, linestyle="--", linewidth=0.5, alpha=0.5)
+        plt.axhline(thresh, 0, 1, linestyle="--", linewidth=0.5, alpha=0.5)
+        plt.show()
+    return timestamp

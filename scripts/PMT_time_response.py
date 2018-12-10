@@ -1,8 +1,4 @@
 import ROOT
-import itertools
-import numpy as np
-import scipy.signal as signal
-import matplotlib.pyplot as plt
 
 import utils.transient_calculations as calc
 import utils.digital_filters as digital_filters
@@ -44,18 +40,20 @@ if __name__ == "__main__":
     peaks_h = ROOT.TH1D("EventTimes", "", len(x)-1, x)
     peaks_h.GetXaxis().SetTitle("Time [ns]")
 
-    # Do looping
+    # Loop over events and calculate timestamps for observed events
     start = time.time()
     for i in range(args.no_events):
-        clean = digital_filters.butter_lowpass_filter(y[i,:], fs, cutoff=0.5e9)
+        clean = digital_filters.butter_lowpass_filter(y[i,:], fs, cutoff=500e6)
         try:
-            #peaks = peakFinder(x, y[i,:])
-            peaks = calc.peakFinder(x, clean, plot=args.plot)
-        except Exception as e:
-            print e
+            peaks = calc.peakFinder(x, clean, thresh=-0.07, min_deltaT=8., plot=args.plot)
+        except IndexError as e:
+            print "Event {0:d}: Index error {1}".format(i, e)
             continue
+
         for peak in peaks:
-            peaks_h.Fill(x[int(peak)])
+            thresh = clean[peak]*0.4
+            timestamp = calc.calcLeadingEdgeTimestamp(x, clean, peak, thresh)
+            peaks_h.Fill(timestamp)
         if i % 10000 == 0 and i is not 0:
             print "{0} events processed".format(i) 
     end = time.time()
@@ -63,3 +61,4 @@ if __name__ == "__main__":
                                                                        (end-start),
                                                                        (end-start)/(i+1))
     peaks_h.Write()
+    print "Results written to: {0}".format(args.outfile)
