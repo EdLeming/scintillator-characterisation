@@ -15,7 +15,7 @@ def makeSummedPulseHisto(x, y, nEarlyBins=100):
     summed_hist.GetYaxis().SetTitle("Summed Voltage / {0:.2f} ns".format(x[1]-x[0]))
 
     for i in range(len(y[:,0])):
-        tmp_hist.SetContent(y[i,:-1])
+        tmp_hist.SetContent( np.array( y[i,:-1], dtype=np.float64) )
         summed_hist.Add(tmp_hist)
         tmp_hist.Clear()
 
@@ -87,6 +87,8 @@ if __name__ == "__main__":
                         help="Name of output (root) file to be generated")
     parser.add_argument('-n', '--no_events', type=int, default=10000,
                         help="Number of events to display")
+    parser.add_argument('-r', '--termination_resistance', type=float, default=50,
+                        help="Termination resistance at the oscilloscope [50 ohms]")
     args = parser.parse_args()
 
     # Run root in batch mode
@@ -135,16 +137,18 @@ if __name__ == "__main__":
         rise_mean, rise_rms, rise = calc.calcRise(x,y)
         fall_mean, fall_rms, fall = calc.calcFall(x,y)
         width_mean, width_rms, width = calc.calcWidth(x,y)
-        integral_mean, integral_rms, integral = calc.calcArea(x,y)
         peak_mean, peak_rms, peak = calc.calcPeak(x,y)
+        integral_mean, integral_rms, integral = calc.calcArea(x*1e-9 ,y*(1e12/args.termination_resistance))
+        integral_mean, intrgral_rms, integral = np.abs(integral_mean), np.abs(integral_rms), np.abs(integral)
         summed_pulses_h = makeSummedPulseHisto(x,y)
+
 
         average_pulses_h = ROOT.TH1D(summed_pulses_h)
         average_pulses_h.Scale( 1. / len(rise) )
         average_pulses_h.GetYaxis().SetTitle("Average Voltage / {0:.2f} ns".format(x[1]-x[0]))
         
         normalised_pulses_h = normaliseSummedPulseHisto(summed_pulses_h)
-        
+
         average_pulses_h.SetName("Ch{0}_Average_pulse".format(key))
         normalised_pulses_h.SetName("Ch{0}_Normalised_pulse".format(key))
 
@@ -156,7 +160,7 @@ if __name__ == "__main__":
         print "# Rise:\t\t {:.1f} +/- {:.1f} [ns]".format(rise_mean, rise_rms)
         print "# Fall:\t\t {:.1f} +/- {:.1f} [ns]".format(fall_mean, fall_rms)
         print "# Width:\t {:.1f} +/- {:.1f} [ns]".format(width_mean, width_rms)
-        print "# Integral:\t {:.1f} +/- {:.1f} [V.ns]".format(integral_mean, integral_rms)
+        print "# Charge:\t {:.1f} +/- {:.1f} [pC]".format(np.abs(integral_mean), integral_rms)
         print "# Pulse Height:\t {:.1f} +/- {:.1f} [V]".format(peak_mean, peak_rms)
 
         summed_pulse = np.zeros( len(y[1,:]) )
@@ -168,17 +172,19 @@ if __name__ == "__main__":
         rise_avg_mean, rise_avg_rms, _ = calc.calcRise(x, summed_pulse)
         fall_avg_mean, fall_avg_rms, _ = calc.calcFall(x, summed_pulse)
         width_avg_mean, width_avg_rms, _ = calc.calcWidth(x, summed_pulse)
-        integral_avg_mean, integral_avg_rms, _ = calc.calcArea(x,y)
-        peak_avg_mean, peak_avg_rms, _ = calc.calcPeak(x,y)
+        integral_avg_mean, integral_avg_rms, _ = calc.calcArea(x*1e-9,
+                                                               summed_pulse*(1e12/args.termination_resistance))
+        integral_avg_mean = np.abs(integral_avg_mean)
+        peak_avg_mean, peak_avg_rms, _ = calc.calcPeak(x,summed_pulse)
 
         print "#"
         print "# Averaged pulse:"
         print "#"
         print "# Rise:\t\t {:.1f} [ns]".format(rise_avg_mean)
         print "# Fall:\t\t {:.1f} [ns]".format(fall_avg_mean)
-        print "# Width:\t {:.1f} [ns]".format(width_mean, width_rms)
-        print "# Integral:\t {:.1f} [V.ns]".format(integral_mean, integral_rms)
-        print "# Pulse Height:\t {:.1f} [V]".format(peak_mean, peak_rms)
+        print "# Width:\t {:.1f} [ns]".format(width_avg_mean)
+        print "# Charge:\t {:.1f} [pC]".format(np.abs(integral_avg_mean))
+        print "# Pulse Height:\t {:.1f} [V]".format(peak_avg_mean)
         print ""
         #print "# Making histos to go in {0}...".format(args.outfile)
 
@@ -197,7 +203,7 @@ if __name__ == "__main__":
                             200,
                             0,
                             100)
-        integral_h = ROOT.TH1D("Ch{0}_Integral".format(key),
+        integral_h = ROOT.TH1D("Ch{0}_Charge".format(key),
                                "",
                                200,
                                integral_mean+(10*integral_rms),
@@ -210,7 +216,7 @@ if __name__ == "__main__":
         rise_h.GetXaxis().SetTitle("Rise time [ns]")
         fall_h.GetXaxis().SetTitle("Fall time [ns]")
         width_h.GetXaxis().SetTitle("Pulse width [ns]")
-        integral_h.GetXaxis().SetTitle("Pulse integral [V.ns]")
+        integral_h.GetXaxis().SetTitle("Pulse integral [pC]")
         peak_h.GetXaxis().SetTitle("Pulse height [V]")
         
         rise_h.SetLineColor( colors[i] )

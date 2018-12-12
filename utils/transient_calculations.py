@@ -33,7 +33,7 @@ def interpolateThreshold(x, y, thresh, rise=True, start=0):
     time = x[index_low] + (thresh - y[index_low]) / dydx
     return time
 
-def calcArea(x,y):
+def calcArea(x, y):
     """Calc area of pulses"""
     integral = np.zeros( len(y[:,0]) )
     for i in range(len(y[:,0])):
