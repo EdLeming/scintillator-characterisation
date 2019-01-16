@@ -22,7 +22,7 @@ if __name__ == "__main__":
                         help="Plot multi-peak events")
     args = parser.parse_args()    
     
-    # Read in data and loopg over each save channel
+    # Read in data and loop over each save channel
     myFileReader = file_reader.FileReader('')
     extension = args.infile.split("/")[-1].split(".")[-1]
     if extension == "h5":
@@ -49,7 +49,10 @@ if __name__ == "__main__":
         except IndexError as e:
             print "Event {0:d}: Index error {1}".format(i, e)
             continue
-
+        except ValueError as e:
+            print "Event {0:d}: Index error {1}".format(i, e)
+            continue
+        
         for peak in peaks:
             thresh = clean[peak]*0.4
             timestamp = calc.calcLeadingEdgeTimestamp(x, clean, peak, thresh)

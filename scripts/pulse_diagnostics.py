@@ -87,7 +87,7 @@ if __name__ == "__main__":
                         help="Name of output (root) file to be generated")
     parser.add_argument('-n', '--no_events', type=int, default=10000,
                         help="Number of events to display")
-    parser.add_argument('-r', '--termination_resistance', type=float, default=50,
+    parser.add_argument('-r', '--termination_resistance', type=float, default=50.,
                         help="Termination resistance at the oscilloscope [50 ohms]")
     args = parser.parse_args()
 
@@ -133,7 +133,7 @@ if __name__ == "__main__":
         print "# Ch{0} Summary ".format(key)
         print "#############################"
         y = dataCleaning(y_dict[key])
-        
+
         rise_mean, rise_rms, rise = calc.calcRise(x,y)
         fall_mean, fall_rms, fall = calc.calcFall(x,y)
         width_mean, width_rms, width = calc.calcWidth(x,y)

@@ -69,7 +69,7 @@ def calcRise(x,y):
         try:
             low = interpolateThreshold(x[:m_index+1], y_reverse, lo_thresh, rise=rising)
             high = interpolateThreshold(x[:m_index+1], y_reverse, hi_thresh, rise=rising)
-        except:
+        except Exception as e:
             continue
         rise[i] = low - high
     return np.mean(rise), rms(rise), rise
