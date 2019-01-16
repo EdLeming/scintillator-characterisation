@@ -104,7 +104,15 @@ class TraceFileReader(FileReader):
         '''Initialise a Trace file reader
         '''
         super(TraceFileReader, self).__init__(fname)
+        self._memory_maps = []
 
+    def __del__(self):
+        '''If we've made any tempory (memory map) files, delete them
+        '''
+        for tmp_file in self._memory_maps:
+            print "Deleting tempory storage file {0}".format(tmp_file)
+            os.remove(tmp_file)
+        
     def set_file_path(self, fname):
         '''Set the file path
         '''
@@ -175,15 +183,17 @@ class TraceFileReader(FileReader):
             
         # Make containers for the data sets
         # If we're dealing with a large dataset use a memory map
-        if nevents*nsamples < 2e8:
+        if nevents*nsamples*len(self._files) < 5e8:
             y = np.zeros( (nevents, nsamples), dtype=np.float32 )
         else:
-            y = np.memmap('memmapped_ch{0}.dat'.format(channel),
+            tmp_file_name = 'memmapped_ch{0}.dat'.format(channel)
+            y = np.memmap(tmp_file_name,
                           dtype=np.float32,
                           mode='w+',
                           shape=(nevents, nsamples))
+            self._memory_maps.append(tmp_file_name)                          
         
-        # Loop over the file reads so binary_data is never too large
+        # Make file reading a loop so binary_data is never too large
         counter = 0
         max_read = int(5e4)
         event_chunks = np.full((nevents / max_read), max_read)
