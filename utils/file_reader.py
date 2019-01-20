@@ -172,7 +172,7 @@ class TraceFileReader(FileReader):
         file_pattern = '{0}{1:d}c'.format(header_pattern, nsamples)
         sample_size = struct.calcsize(sample_pattern)
         fp_size = struct.calcsize(file_pattern)
-        
+
         # How many traces in this file?
         f.seek(0,2) # move the cursor to the end of the file
         file_size = f.tell()
