@@ -142,6 +142,7 @@ class TraceFileReader(FileReader):
         start = time.time()
         for channel in self._files:
             self.read_channel_trace(channel, self._files[channel], nevents=nevents)
+        nevents = len(self._channel_data[self._files.keys()[0]])
         print "Took {0:.3f}s to read {1:d} events from:".format(time.time()-start, nevents)
         for f in self.get_files():
             print f
@@ -268,4 +269,3 @@ if __name__ == "__main__":
         figures.append(fig)
     plt.grid()
     plt.show()
-
