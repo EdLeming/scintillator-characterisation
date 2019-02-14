@@ -4,7 +4,13 @@ Needs proper documentation
 
 Installation
 ======
-It is assumed you run this analysis package in a vitrual environment. If not already installed get venv with 'pip install virtualenv'
+It is assumed you run this analysis package in a vitrual environment. To install and enter a virtual environment
+you can run:
 
-Then install the analysis software with:
-'python setup.py install'
+`$ pip install virtualenv`
+`$ virtualenv venv`
+`$ source venv/bin/activate`
+
+Once inside the venv, one can install the analysis software with:
+
+`$ python setup.py install`
