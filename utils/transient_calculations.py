@@ -38,7 +38,40 @@ def calcArea(x, y):
     integral = np.zeros( len(y[:,0]) )
     for i in range(len(y[:,0])):
         integral[i] = np.trapz(y[i,:],x)
-    return np.mean(integral), rms(integral), integral
+    return np.mean(integral), rms(integral), integral  
+
+def calcPartialArea(x,y,window=15,early=True):
+    '''Calc area between two times, can be used for either late or early light'''
+    integral = np.zeros( len(y[:,0]) )
+    f = positiveCheck(y)
+    valid_events = 0
+    for i, event in enumerate(y):
+        if f:
+            m = max(event)
+        else:
+            m = min(event)
+        m_index = np.where(event == m)[0][0]
+        time_start = interpolateThreshold(x, event, m*0.2, rise=f)
+        if early:
+            time_1 = time_start
+            time_2 = time_start + window
+        else:
+            time_1 = time_start + window
+            time_2 = time_start + 200
+        if time_2 > 500:
+            time_2 = 500
+        if time_1 >500:
+            continue
+        index_1 = np.where(x > time_1)[0][0]
+        index_2 = np.where(x > time_2)[0][0]
+        y_section = y[i,index_1:index_2]
+        x_section = x[index_1:index_2]
+        integral[i] = np.trapz(y_section,x_section)
+        valid_events = valid_events + 1
+        if valid_events % 1000 == 0:
+            print "{0} events processed".format(valid_events)
+    
+    return integral
 
 def calcPulseRatios(x, y1, y2):
     """Calc the ratio of the pulse areas"""
