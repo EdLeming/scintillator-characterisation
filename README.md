@@ -8,7 +8,9 @@ It is assumed you run this analysis package in a vitrual environment. To install
 you can run:
 
 `$ pip install virtualenv`
+
 `$ virtualenv venv`
+
 `$ source venv/bin/activate`
 
 Once inside the venv, one can install the analysis software with:
