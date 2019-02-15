@@ -6,6 +6,7 @@ import glob
 import time
 import struct
 import itertools
+import time
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -186,7 +187,8 @@ class TraceFileReader(FileReader):
         if nevents*nsamples*len(self._files) < 5e8:
             y = np.zeros( (nevents, nsamples), dtype=np.float32 )
         else:
-            tmp_file_name = 'memmapped_ch{0}.dat'.format(channel)
+            time_stamp = time.localtime()
+            tmp_file_name = 'memmapped_ch{0}_{1}m{2}s.dat'.format(channel,time_stamp.tm_min,time_stamp.tm_sec)
             y = np.memmap(tmp_file_name,
                           dtype=np.float32,
                           mode='w+',

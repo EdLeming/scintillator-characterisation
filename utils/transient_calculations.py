@@ -40,18 +40,26 @@ def calcArea(x, y):
         integral[i] = np.trapz(y[i,:],x)
     return np.mean(integral), rms(integral), integral  
 
-def calcPartialArea(x,y,window=15,early=True):
+def calcPartialArea(x,y,window=20,threshold=0.2,areaCut=0.9,early=True):
     '''Calc area between two times, can be used for either late or early light'''
     integral = np.zeros( len(y[:,0]) )
     f = positiveCheck(y)
     valid_events = 0
+
+    #Find area threshold by finding largest pulse in data set
+    area = np.zeros( len(y[:,0]))
+    for i, event in enumerate(y):
+        area[i] = np.trapz(event,x)
+        print "area is {0}".format(area[i])
+    
+
     for i, event in enumerate(y):
         if f:
             m = max(event)
         else:
             m = min(event)
         m_index = np.where(event == m)[0][0]
-        time_start = interpolateThreshold(x, event, m*0.2, rise=f)
+        time_start = interpolateThreshold(x, event, m*threshold, rise=f)
         if early:
             time_1 = time_start
             time_2 = time_start + window
