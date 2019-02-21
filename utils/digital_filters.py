@@ -23,7 +23,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser("Calculate the time response of a PMT from LED data")
     parser.add_argument('infile', type=str,
                         help="Data file to be read in")
-    parser.add_argument('-i', '--event_index', type=int, default=0,
+    parser.add_argument('-i', '--event_index', type=int, default=1,
                         help="Index of event to evaluate")
     parser.add_argument("-c", "--channel", type=int, default=2,
                         help="Which scope channel should be evaluated?")
@@ -62,6 +62,7 @@ if __name__ == "__main__":
     plt.grid()
                                 
     # Filter the data, and plot both the original and filtered signals.
+    print y_dict.keys()
     data = y_dict[args.channel]
     data = data[args.event_index-1,:]
     start = time.time()
