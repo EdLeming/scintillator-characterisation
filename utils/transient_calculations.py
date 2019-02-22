@@ -215,7 +215,7 @@ def peakFinder(x, y, thresh=-0.075, positive=False, min_deltaT=10., plot=False):
     peak_indicies = [int(peak) for peak in peak_indicies]
     
     # Some plotting stuff - probably delete after debugging
-    if plot and peak_indicies.size > 1:
+    if plot and len(peak_indicies) > 1:
         x_select = [x[i] for i in peak_indicies]
         y_select = [y[i] for i in peak_indicies]
         plt.plot(x, y)
