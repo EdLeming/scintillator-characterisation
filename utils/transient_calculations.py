@@ -7,6 +7,30 @@ colors = [ROOT.kBlack, ROOT.kRed-4,
           ROOT.kBlue, ROOT.kMagenta+1,
           ROOT.kGray, ROOT.kOrange+7]
 
+def threshold_finder(x,y):
+    f = positiveCheck(y)
+    noise_h = ROOT.TH1D("noise_h","noise",50,-1,1)
+    #Get time stamps for first section of trace, should contain only noise
+    time_1 = 0
+    time_2 = 150
+    index_1 = np.where(x>time_1)[0][0]
+    index_2 = np.where(x>time_2)[0][0]
+    #Create histogram of the maximum noise
+    for i, event in enumerate(y):
+        y_section = event[index_1:index_2]
+        noise = min(y_section)
+        noise_h.Fill(noise)
+    #Set threshold at 3 sigma above the mean noise
+    threshold = noise_h.GetMean()
+    std = noise_h.GetStdDev()
+    if f:
+        std = std
+    else:
+        std = -std
+    threshold = threshold + std*3
+
+    return threshold
+
 def rms(alist):
     '''Calc rms of 1d array'''
     if len(alist) > 1:
@@ -38,28 +62,37 @@ def calcArea(x, y):
     integral = np.zeros( len(y[:,0]) )
     for i in range(len(y[:,0])):
         integral[i] = np.trapz(y[i,:],x)
-    return np.mean(integral), rms(integral), integral  
-
-def calcPartialArea(x,y,window=20,threshold=0.2,areaCut=0.9,early=True):
+    return np.mean(integral), rms(integral), integral
+ 
+def calcPartialArea(x,y,no_events=1e4,window=20,threshold=-0.05,areaCut=1,early=True):
     '''Calc area between two times, can be used for either late or early light'''
-    integral = np.zeros( len(y[:,0]) )
+    integral = []
     f = positiveCheck(y)
     valid_events = 0
-
-    #Find area threshold by finding largest pulse in data set
-    area = np.zeros( len(y[:,0]))
+    #Find area threshold by sorting pulses in data set and choosing only a certain fraction
+    area = np.zeros(len(y[:,0]))
     for i, event in enumerate(y):
         area[i] = np.trapz(event,x)
-        print "area is {0}".format(area[i])
-    
-
+    area.sort()
+    if f:
+        index = int(no_events*(1-areaCut))-1
+    else:
+        index = int(no_events*areaCut)-1
+    areaThresh = area[index]
+    #Event loop
     for i, event in enumerate(y):
+        eventArea = np.trapz(event,x)
+        #find peak and cut on area threshold
         if f:
             m = max(event)
-        else:
+            if eventArea < areaThresh:
+                continue
+        else: 
             m = min(event)
-        m_index = np.where(event == m)[0][0]
-        time_start = interpolateThreshold(x, event, m*threshold, rise=f)
+            if eventArea > areaThresh:
+                continue
+        #Place the time window for integration and save integral
+        time_start = interpolateThreshold(x, event, threshold, rise=f)
         if early:
             time_1 = time_start
             time_2 = time_start + window
@@ -72,11 +105,11 @@ def calcPartialArea(x,y,window=20,threshold=0.2,areaCut=0.9,early=True):
             continue
         index_1 = np.where(x > time_1)[0][0]
         index_2 = np.where(x > time_2)[0][0]
-        y_section = y[i,index_1:index_2]
+        y_section = event[index_1:index_2]
         x_section = x[index_1:index_2]
-        integral[i] = np.trapz(y_section,x_section)
+        integral.append(np.trapz(y_section,x_section))
         valid_events = valid_events + 1
-        if valid_events % 1000 == 0:
+        if valid_events % 2000 == 0:
             print "{0} events processed".format(valid_events)
     
     return integral
