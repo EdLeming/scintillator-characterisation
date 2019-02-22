@@ -42,27 +42,22 @@ class MinuitMinimize( ROOT.TPyMultiGenFunction ):
     def FitFunc(self, pars):
         '''
         '''
-        # Save parameters for use later
+        # Save current parameters for use later
         self._pars = pars
-
         # Define timebases
         dx = self._dx
-
         shift_x = self._x - pars[0]
-        t = shift_x[np.where(shift_x > 0)[0]]
 
+        t = shift_x[np.where(shift_x > 0)[0]]
         len_x = self._dx*len(t)
         x = np.arange(-len_x/2., len_x/2., dx)
-
         # Make characteristic shapes
         gaussian = self.gaus(x,0,pars[1])
         scint = self.scintillator_response(t, pars[3], pars[4])
         ceren = self.ceren_response(x, order=0.01)
-
         # For selecting appropriate regions of the convolution
         half_index = int(len(t)/2.)
         quarter_index = int(len(t)/4.)
-        
         # Convolve optical response with detector response
         scint_response = np.convolve(scint, gaussian)[half_index-self._lead_time_offset:-half_index]
         ceren_response = np.convolve(ceren, gaussian)[len(t) - self._lead_time_offset:-quarter_index]
@@ -71,23 +66,16 @@ class MinuitMinimize( ROOT.TPyMultiGenFunction ):
         ceren_response = ceren_response / np.trapz(ceren_response, dx=dx)
         # Scale by estimated ceren-scint ratio
         scint_response = (1-pars[5])*scint_response
-        ceren_response = pars[5]*ceren_response
-        
+        ceren_response = pars[5]*ceren_response        
         # Zero pad the signals
         zero_padding = np.zeros( len(scint_response) - len(ceren_response) )
         ceren_response = np.append(ceren_response, zero_padding)
         pad_x = np.arange(0, dx*len(ceren_response), dx) - self._lead_time
-        
         # Sum the two signal arrays and scale by predicted intensity to form the total response
         total_response = np.array(scint_response)
         for i, ent in enumerate(ceren_response):
             total_response[i] = (total_response[i] + ent)*pars[2]
-
-        #plt.plot(pad_x, scint_response)
-        #plt.plot(pad_x, ceren_response)
-        #plt.plot(pad_x, total_response,'--',label='total')
-        #plt.legend()
-        #plt.show()
+            
         return pad_x, total_response
 
     def scintillator_response(self, x, rise, fall, normalise=False):
@@ -210,8 +198,8 @@ if __name__ == "__main__":
     pars = [trace_start-10,
             1.,
             N,
-            20.,
-            45.,
+            .8,
+            10.,
             0.001]
     
     mini = ROOT.Math.Factory.CreateMinimizer("Minuit2", "Migrad")
@@ -232,41 +220,50 @@ if __name__ == "__main__":
     mini.SetVariable(4,"Fall", pars[4], 0.00001)
     mini.SetVariable(5,"R_cs", pars[5], 0.0000000001)
     mini.SetVariableLimits(0, trace_start-20, trace_start-5)
-    mini.SetVariableLimits(1, 0.5, 3.5)
+    mini.SetVariableLimits(1, 0.5, 1.5)
     mini.SetVariableLimits(2, N*0.8, N*1.2)
-    mini.SetVariableLimits(3, 12., 25.)
-    mini.SetVariableLimits(4, 35., 65.)
+    mini.SetVariableLimits(3, 0.79, .81)
+    mini.SetVariableLimits(4, 5., 15.)
     mini.SetVariableLimits(5, 0.06, 0.001)
     start = time.time()
     mini.Minimize()
     end = time.time()
-    
+
+    # Get final parameters and their errors
     pars, errors = getPythonPars(mini)
 
+    # Print final results to screen
+    print "\nResults:"
+    print "Chi2/NDF: \t{0:.0f} / {1:.0f}".format(minuitMini._chi2, (minuitMini._nActive_bins -
+                                                                    minuitMini._nDim))
     for i, par in enumerate(pars):
         print "{0}: \t{1:.2E} +/- {2:.2E}".format(mini.VariableName(i), par, errors[i])
     print trace_start
+
+    # Get fit and data - offset appropriately for plotting!
     fit_x, fitted = minuitMini.FitFunc( pars )
     general_offset = len(minuitMini._x) - len(fit_x) + minuitMini._lead_time_offset
 
     data = minuitMini._bin_contents[general_offset:]
     fitted = fitted[:-minuitMini._lead_time_offset]
     plot_x = np.arange(-minuitMini._lead_time, (len(fitted)-minuitMini._lead_time_offset-1)*dx, dx)
-    
+
+    # Make hitsograms to hold data and fit results
     fitted_h= ROOT.TH1D("Fit_h","",len(plot_x)-1, np.array(plot_x, dtype=np.float64))
     data_h= ROOT.TH1D("Data_h","",len(plot_x)-1, np.array(plot_x, dtype=np.float64))
     fitted_h.SetContent( np.array(fitted, dtype=np.float64) )
     data_h.SetContent( np.array(data, dtype=np.float64) )    
-
     data_h.GetXaxis().SetTitle("Time residuals [ns]")
     data_h.GetYaxis().SetTitle("Counts / {:.2f} ns".format(dx))
-    
-    can = ROOT.TCanvas("c1", "c1", 1200, 800)
+
+    # Draw histos to canvas
+    can = ROOT.TCanvas("c1", "c1", 1000, 800)
     data_h.Draw("E")
     fitted_h.SetLineColor(ROOT.kRed)
     fitted_h.Draw("SAME")
     can.Update()
 
+    # Draw a box with the results
     tPave = ROOT.TPaveText(0.63, 0.6, 0.88, 0.885, "NDC")
     tPave.SetFillColor(ROOT.kWhite)
     tPave.SetBorderSize(1)
