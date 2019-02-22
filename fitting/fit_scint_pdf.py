@@ -18,8 +18,9 @@ class MinuitMinimize( ROOT.TPyMultiGenFunction ):
         self._bin_contents_errors = np.array(errors, dtype=np.float128)
         self._pars = []
 
-        self._five_sigma = 0
-        self._five_sigma_offset = 0
+        # How much 'lead time' should we include before the fitted t0?
+        self._lead_time = 20 #ns 
+        self._lead_time_offset = int( self._lead_time / self._dx )
         
         self._nActive_bins=0
         self._chi2 = 0
@@ -46,10 +47,6 @@ class MinuitMinimize( ROOT.TPyMultiGenFunction ):
 
         # Define timebases
         dx = self._dx
-        #self._five_sigma = 10*pars[1] 
-        #self._five_sigma_offset = int(10*(pars[1]/dx))
-        self._five_sigma = 10 
-        self._five_sigma_offset = int(10./dx)
 
         shift_x = self._x - pars[0]
         t = shift_x[np.where(shift_x > 0)[0]]
@@ -62,24 +59,30 @@ class MinuitMinimize( ROOT.TPyMultiGenFunction ):
         scint = self.scintillator_response(t, pars[3], pars[4])
         ceren = self.ceren_response(x, order=0.01)
 
-        five_sigma_offset = int(5*(pars[1]/dx))
+        # For selecting appropriate regions of the convolution
         half_index = int(len(t)/2.)
         quarter_index = int(len(t)/4.)
         
         # Convolve optical response with detector response
-        scint_response = np.convolve(scint, gaussian)[half_index-self._five_sigma_offset:-half_index]
-        ceren_response = np.convolve(ceren, gaussian)[len(t) - self._five_sigma_offset:-quarter_index]
-        scint_response = (1-pars[5])*(scint_response / np.trapz(scint_response, dx=0.2))
-        ceren_response = pars[5]*(ceren_response / np.trapz(ceren_response, dx=0.2))
+        scint_response = np.convolve(scint, gaussian)[half_index-self._lead_time_offset:-half_index]
+        ceren_response = np.convolve(ceren, gaussian)[len(t) - self._lead_time_offset:-quarter_index]
+        # Normalize
+        scint_response = scint_response / np.trapz(scint_response, dx=dx)
+        ceren_response = ceren_response / np.trapz(ceren_response, dx=dx)
+        # Scale by estimated ceren-scint ratio
+        scint_response = (1-pars[5])*scint_response
+        ceren_response = pars[5]*ceren_response
         
+        # Zero pad the signals
         zero_padding = np.zeros( len(scint_response) - len(ceren_response) )
         ceren_response = np.append(ceren_response, zero_padding)
-        pad_x = np.arange(0, dx*len(ceren_response), dx) - self._five_sigma
-
+        pad_x = np.arange(0, dx*len(ceren_response), dx) - self._lead_time
+        
+        # Sum the two signal arrays and scale by predicted intensity to form the total response
         total_response = np.array(scint_response)
         for i, ent in enumerate(ceren_response):
             total_response[i] = (total_response[i] + ent)*pars[2]
-            
+
         #plt.plot(pad_x, scint_response)
         #plt.plot(pad_x, ceren_response)
         #plt.plot(pad_x, total_response,'--',label='total')
@@ -110,8 +113,8 @@ class MinuitMinimize( ROOT.TPyMultiGenFunction ):
         '''
         chi2 = 0
         self._nActive_bins = 0
-        general_offset = len(self._x) - len(x) + self._five_sigma_offset
-        no_steps = len(x) - self._five_sigma_offset
+        general_offset = len(self._x) - len(x) + self._lead_time_offset
+        no_steps = len(x) - self._lead_time_offset
         diff_a = []
         for i in range(no_steps):
             raw_index = i + general_offset
@@ -124,11 +127,11 @@ class MinuitMinimize( ROOT.TPyMultiGenFunction ):
             self._nActive_bins = self._nActive_bins + 1
 
         #plt.plot(x, array)
-        #plt.plot(x[:-self._five_sigma_offset]+self._five_sigma, self._bin_contents[general_offset:])
-        #plt.plot(x[:-self._five_sigma_offset], diff_a)
+        #plt.plot(x[:-self._lead_time_offset]+self._lead_time, self._bin_contents[general_offset:])
+        #plt.plot(x[:-self._lead_time_offset], diff_a)
         #plt.plot(self._bin_contents[general_offset:])
 
-        #plt.plot(array[:-self._five_sigma_offset])
+        #plt.plot(array[:-self._lead_time_offset])
         #plt.plot(self._bin_contents[general_offset:])
 
         #plt.plot(array)
@@ -177,15 +180,12 @@ if __name__ == "__main__":
     import time
     import sys
     import array
-    import utils.file_reader as file_reader
     usage = "usage: %prog <filename/prefix>"
     parser = argparse.ArgumentParser(usage)
     parser.add_argument('infile', type=str,
                         help="File(s) to be read in")
     parser.add_argument('-n', '--hist_name', type=str, default="Charge200-300_t-0.020",
                         help="Name of the histogram to grab from infile [Charge200-300_t-0.020]")
-    parser.add_argument("--plot", action='store_true', 
-                        help="Plot multi-peak events")
     args = parser.parse_args()
 
     # ROOT stuff
@@ -208,13 +208,16 @@ if __name__ == "__main__":
     trace_end = time_h.GetXaxis().GetBinLowEdge( time_h.GetXaxis().GetNbins() )
 
     pars = [trace_start-10,
-            0.75,
+            1.,
             N,
-            1.3,
-            46.,
-            0.01]
+            20.,
+            45.,
+            0.001]
     
     mini = ROOT.Math.Factory.CreateMinimizer("Minuit2", "Migrad")
+    #mini = ROOT.Math.Factory.CreateMinimizer("Minuit2", "Fumili")
+    #mini = ROOT.Math.Factory.CreateMinimizer("GSLSimAn", "")
+    #mini = ROOT.Math.Factory.CreateMinimizer("GSLMultiMin", "BFGS")
     mini.SetMaxFunctionCalls(1000000)
     mini.SetMaxIterations(100000)
     mini.SetTolerance(0.00000001)
@@ -229,11 +232,11 @@ if __name__ == "__main__":
     mini.SetVariable(4,"Fall", pars[4], 0.00001)
     mini.SetVariable(5,"R_cs", pars[5], 0.0000000001)
     mini.SetVariableLimits(0, trace_start-20, trace_start-5)
-    mini.SetVariableLimits(1, 0.5, 2.5)
-    mini.SetVariableLimits(2, N*0.7, N*1.3)
-    mini.SetVariableLimits(3, 0.5, 2.5)
-    mini.SetVariableLimits(4, 35., 55.)
-    mini.SetVariableLimits(5, 0.1, 1e-4)
+    mini.SetVariableLimits(1, 0.5, 3.5)
+    mini.SetVariableLimits(2, N*0.8, N*1.2)
+    mini.SetVariableLimits(3, 12., 25.)
+    mini.SetVariableLimits(4, 35., 65.)
+    mini.SetVariableLimits(5, 0.06, 0.001)
     start = time.time()
     mini.Minimize()
     end = time.time()
@@ -244,11 +247,11 @@ if __name__ == "__main__":
         print "{0}: \t{1:.2E} +/- {2:.2E}".format(mini.VariableName(i), par, errors[i])
     print trace_start
     fit_x, fitted = minuitMini.FitFunc( pars )
-    general_offset = len(minuitMini._x) - len(fit_x) + minuitMini._five_sigma_offset
+    general_offset = len(minuitMini._x) - len(fit_x) + minuitMini._lead_time_offset
 
     data = minuitMini._bin_contents[general_offset:]
-    fitted = fitted[:-minuitMini._five_sigma_offset]
-    plot_x = np.arange(-minuitMini._five_sigma, (len(fitted)-minuitMini._five_sigma_offset-1)*dx, dx)
+    fitted = fitted[:-minuitMini._lead_time_offset]
+    plot_x = np.arange(-minuitMini._lead_time, (len(fitted)-minuitMini._lead_time_offset-1)*dx, dx)
     
     fitted_h= ROOT.TH1D("Fit_h","",len(plot_x)-1, np.array(plot_x, dtype=np.float64))
     data_h= ROOT.TH1D("Data_h","",len(plot_x)-1, np.array(plot_x, dtype=np.float64))
@@ -258,7 +261,7 @@ if __name__ == "__main__":
     data_h.GetXaxis().SetTitle("Time residuals [ns]")
     data_h.GetYaxis().SetTitle("Counts / {:.2f} ns".format(dx))
     
-    can = ROOT.TCanvas("c1", "c1")
+    can = ROOT.TCanvas("c1", "c1", 1200, 800)
     data_h.Draw("E")
     fitted_h.SetLineColor(ROOT.kRed)
     fitted_h.Draw("SAME")
