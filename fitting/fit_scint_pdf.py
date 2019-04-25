@@ -1,93 +1,107 @@
+import sys
 import ROOT
 import matplotlib.pyplot as plt
 import numpy as np
 
+import utils.root_plotting as rootplot
+
 class MinuitMinimize( ROOT.TPyMultiGenFunction ):
     ''' A class to hold a minuit minimiser
     '''
-    def __init__(self, hist):
+    def __init__(self, pdf, time_response, lead_time=20):
         '''
         '''
-        x,y = get_xy(hist)
+        # Some required definitions
+        self._nDim = 5
+        ROOT.TPyMultiGenFunction.__init__(self, self)
+        # Hold the current parameters
+        self._pars = []
+        # Get data histogram's contents and store as private variables for fitting
+        x,y = get_xy(pdf)
         errors, contents = [], []
         for i, ent in enumerate(y):
             errors.append(np.sqrt(ent))
         self._x = np.array(x, dtype=np.float128)
-        self._dx = x[1] - x[0]
+        self._dx = round( (x[1] - x[0])*100)*0.01 # round to 10ps resolution
         self._bin_contents = np.array(y, dtype=np.float128)
         self._bin_contents_errors = np.array(errors, dtype=np.float128)
-        self._pars = []
-
         # How much 'lead time' should we include before the fitted t0?
-        self._lead_time = 20 #ns 
+        self._lead_time = lead_time #ns 
         self._lead_time_offset = int( self._lead_time / self._dx )
-        
+        # Some vairable for the chi2 calculations
         self._nActive_bins=0
         self._chi2 = 0
-        self._nDim = 6
+        # Get and store system timing resolution histogram a private array
+        det_res_x, det_res_y = get_coincidence_resolution(time_response)
+        if np.abs(self._dx - (det_res_x[1] - det_res_x[0])) > 1e-2:
+            print "PDF and resolution histos have different binning: {0:e}, {1:e}".format(self._dx, det_res_x[1] - det_res_x[0])
+            sys.exit()
+        self._resolution = det_res_y
         
-        ROOT.TPyMultiGenFunction.__init__(self, self)
-
     def NDim(self):
+        '''REQUIRED FOR MINIMIZER TO WORK
+        How many dimensions in this fit
+        '''
         return self._nDim
 
     def DoEval(self, pars):
-        ''' Function to be minimized
+        '''REQUIRED FOR MINIMIZER TO WORK
+        Function called by ROOT minimizer
         '''
-        x, func = self.FitFunc(pars)
-        self._chi2 = self.Chi2(x, func)
+        _, fit = self.FitFunc(pars)
+        self._chi2 = self.Chi2(fit)
         self._chi2_NDF = self._chi2 / (self._nActive_bins - self._nDim)
         return self._chi2
 
     def FitFunc(self, pars):
-        '''
+        '''Make functional form given the passed parameters
         '''
         # Save current parameters for use later
         self._pars = pars
-        # Define timebases
+        # Define new timebase
         dx = self._dx
         shift_x = self._x - pars[0]
+        zero_index = np.where(shift_x > 0)[0]-1
+        raw_x = shift_x[zero_index]
+        # Define optical model
+        scint = (1-pars[4])*self.scintillator_response(raw_x, pars[2], pars[3])
+        ceren = (pars[4])*self.delta_response(raw_x)
+        total = scint + ceren
+        # Define variables to select appropriate part of convolved array
+        diff = len(self._resolution) - len(raw_x)
+        half_index = int((len(raw_x)+diff)/2.)
+        # Do convolution
+        total_response = np.convolve(total, self._resolution)[half_index-self._lead_time_offset:-half_index]
+        # Normalise to one and scale response to fit NEntries in data histogram
+        total_response = pars[1]*(total_response / np.trapz(total_response, dx=1))
+        total_x = np.arange(-self._lead_time, (len(total_response)*dx)-self._lead_time, dx)
+        return total_x, total_response
 
-        t = shift_x[np.where(shift_x > 0)[0]]
-        len_x = self._dx*len(t)
-        x = np.arange(-len_x/2., len_x/2., dx)
-        # Make characteristic shapes
-        gaussian = self.gaus(x,0,pars[1])
-        scint = self.scintillator_response(t, pars[3], pars[4])
-        ceren = self.ceren_response(x, order=0.01)
-        # For selecting appropriate regions of the convolution
-        half_index = int(len(t)/2.)
-        quarter_index = int(len(t)/4.)
-        # Convolve optical response with detector response
-        scint_response = np.convolve(scint, gaussian)[half_index-self._lead_time_offset:-half_index]
-        ceren_response = np.convolve(ceren, gaussian)[len(t) - self._lead_time_offset:-quarter_index]
-        # Normalize
-        scint_response = scint_response / np.trapz(scint_response, dx=dx)
-        ceren_response = ceren_response / np.trapz(ceren_response, dx=dx)
-        # Scale by estimated ceren-scint ratio
-        scint_response = (1-pars[5])*scint_response
-        ceren_response = pars[5]*ceren_response        
-        # Zero pad the signals
-        zero_padding = np.zeros( len(scint_response) - len(ceren_response) )
-        ceren_response = np.append(ceren_response, zero_padding)
-        pad_x = np.arange(0, dx*len(ceren_response), dx) - self._lead_time
-        # Sum the two signal arrays and scale by predicted intensity to form the total response
-        total_response = np.array(scint_response)
-        for i, ent in enumerate(ceren_response):
-            total_response[i] = (total_response[i] + ent)*pars[2]
-            
-        return pad_x, total_response
+    def Chi2(self, fit):
+        '''Calculate the Pearsons Chi2
+        '''
+        chi2, self._chi2, self._nActive_bins  = 0, 0, 0
+        offset = len(self._x) - len(fit) + self._lead_time_offset    
+        data = self._bin_contents[offset:]
+        for i, entry in enumerate(data):
+            if entry < 1:
+                continue
+            diff = (entry - fit[i])
+            chi2 = chi2 + (diff*diff / fit[i])
+            self._nActive_bins = self._nActive_bins + 1
+        return chi2
 
     def scintillator_response(self, x, rise, fall, normalise=False):
         f = (np.exp(-x/fall) - np.exp(-x/rise)) / (fall - rise)
         if normalise:
-            f = f / np.trapz(f,x)
+            f = f*self._dx
         return f
-    
-    def ceren_response(self, x, order=0.1, normalise=False):
-        f = np.exp(- ((x)*(x) )/ order*order ) / (order*np.sqrt(np.pi))
+
+    def delta_response(self, x, normalise=False):
+        f = np.zeros(len(x))
+        f[ 0 ] = 1 * (1/self._dx)
         if normalise:
-            f = f / np.trapz(f,x)
+            f = f*self._dx
         return f
 
     def gaus(self, x, mu=0, sigma=10, normalise=False):
@@ -96,37 +110,6 @@ class MinuitMinimize( ROOT.TPyMultiGenFunction ):
             f = f / np.trapz(f,x)
         return f
 
-    def Chi2(self, x, array):
-        '''Calculate the chi2
-        '''
-        chi2 = 0
-        self._nActive_bins = 0
-        general_offset = len(self._x) - len(x) + self._lead_time_offset
-        no_steps = len(x) - self._lead_time_offset
-        diff_a = []
-        for i in range(no_steps):
-            raw_index = i + general_offset
-            if self._bin_contents[raw_index] < 1.0:
-                diff_a.append(0)
-                continue
-            diff = (self._bin_contents[raw_index] - array[i]) / self._bin_contents_errors[raw_index]
-            diff_a.append(diff)
-            chi2 = chi2 + diff*diff
-            self._nActive_bins = self._nActive_bins + 1
-
-        #plt.plot(x, array)
-        #plt.plot(x[:-self._lead_time_offset]+self._lead_time, self._bin_contents[general_offset:])
-        #plt.plot(x[:-self._lead_time_offset], diff_a)
-        #plt.plot(self._bin_contents[general_offset:])
-
-        #plt.plot(array[:-self._lead_time_offset])
-        #plt.plot(self._bin_contents[general_offset:])
-
-        #plt.plot(array)
-        #plt.plot(self._bin_contents[general_offset:])
-        #plt.plot(diff_a)
-        #plt.show()
-        return chi2
     
 def get_xy(histo):
     '''
@@ -163,6 +146,48 @@ def getPythonPars(mini):
 
     return pars, err
 
+def get_coincidence_resolution(histo):
+    '''Get histogram of coincidence timing resolution
+    '''
+    # Get xy values
+    x,y = get_xy(histo)
+    dx = x[1] - x[0]
+    peak_bin = response_h.GetBinLowEdge(response_h.GetMaximumBin())
+    y_trimmed = np.trim_zeros(np.array(y))
+    # Find the max bin
+    y_max_bin = np.argmax(y_trimmed)
+    # Make the y array symetric around this bin
+    padding = (0,0)
+    left = y_max_bin
+    right = len(y_trimmed) - left
+    if left > right:
+        padding = (0, left-right)
+    else:
+        padding = (right-left, 0)
+    # Make symetric arrays
+    y_symmetric = np.pad(y_trimmed, padding,'constant',constant_values=(0,0))
+    y_symmetric = (y_symmetric / np.trapz(y_symmetric, dx=dx))
+    n = len(y_symmetric)
+    x_symmetric = np.arange(-(dx*n)/2., (dx*n)/2., dx)
+    return x_symmetric, y_symmetric    
+
+
+def plot_correlation_matrix(minimizer):
+
+    pars, errors = getPythonPars(minimizer)
+    nPars = len(pars)
+    matrix_h = ROOT.TH2D("CorrelationMatrix",
+                         "CorrelationMatrix",
+                         len(pars), 1, nPars,
+                         len(pars), 1, nPars)
+    for i in range(nPars):
+        matrix_h.GetXaxis().SetBinLabel(i+1, minimizer.VariableName(i))
+        matrix_h.GetYaxis().SetBinLabel(i+1, minimizer.VariableName(i))
+        for j in range(nPars):
+            matrix_h.SetBinContent(i+1, j+1, minimizer.Correlation(i,j))
+    return matrix_h
+                       
+
 if __name__ == "__main__":
     import argparse
     import time
@@ -172,112 +197,185 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(usage)
     parser.add_argument('infile', type=str,
                         help="File(s) to be read in")
-    parser.add_argument('-n', '--hist_name', type=str, default="Charge200-300_t-0.020",
+    parser.add_argument('-n', '--hist_name', type=str, default="Charge50_t5",
                         help="Name of the histogram to grab from infile [Charge200-300_t-0.020]")
+    parser.add_argument('-r', '--resolution_file', type=str,
+                        default="./results/system_time_response/tests/cerenkov_thresh-NEMO-reflec.root",
+                        help="Path to rootfile containing")
     args = parser.parse_args()
 
     # ROOT stuff
     ROOT.gROOT.SetBatch(False)
     ROOT.gStyle.SetOptStat(0)
+    
+    # Get data file
     infile = ROOT.TFile(args.infile)
-
+    histos = []
     try:
-        time_h = infile.Get("{0}".format(args.hist_name))
+        pdf_h = infile.Get("{0}".format(args.hist_name))
+        pdf_h.SetDirectory(0)
+        pdf_h.Integral()
     except Exception as e:
         raise e
-
-    x,y = get_xy(time_h)
+    histos.append(pdf_h)
+    
+    x,y = get_xy(pdf_h)
     dx = x[1] - x[0]
 
-    # Get some useful values from the hist we've just read
-    N = time_h.Integral('width')
-    peak_centre = time_h.GetXaxis().GetBinLowEdge( time_h.GetMaximumBin() )
-    trace_start = x[time_h.FindFirstBinAbove( 3 )]
-    trace_end = time_h.GetXaxis().GetBinLowEdge( time_h.GetXaxis().GetNbins() )
-
-    pars = [trace_start-10,
-            1.,
-            N,
-            .8,
-            10.,
-            0.001]
+    # Get system response
+    thresh = args.hist_name.split("t")[-1]
+    infile = ROOT.TFile(args.resolution_file)
+    try:
+        response_h = infile.Get("dt_thresh{0}".format(thresh))
+        response_h.SetDirectory(0)
+        response_h.Integral()
+    except Exception as e:
+        raise e
+    histos.append(response_h)
     
+    # Set up minimiser object with custom class object where we define our function
     mini = ROOT.Math.Factory.CreateMinimizer("Minuit2", "Migrad")
-    #mini = ROOT.Math.Factory.CreateMinimizer("Minuit2", "Fumili")
-    #mini = ROOT.Math.Factory.CreateMinimizer("GSLSimAn", "")
-    #mini = ROOT.Math.Factory.CreateMinimizer("GSLMultiMin", "BFGS")
-    mini.SetMaxFunctionCalls(1000000)
-    mini.SetMaxIterations(100000)
-    mini.SetTolerance(0.00000001)
-    mini.SetPrintLevel(1)
+    mini.SetMaxFunctionCalls(10000000)
+    mini.SetMaxIterations(10000)
+    mini.SetTolerance(1)
+    mini.SetPrintLevel(2)
     mini.SetStrategy(2)
-    minuitMini = MinuitMinimize(time_h)
-    mini.SetFunction(minuitMini)
-    mini.SetVariable(0,"trigger_offset", pars[0], dx)
-    mini.SetVariable(1,"det_resolution", pars[1], 0.001)
-    mini.SetVariable(2,"N", pars[2], 1)
-    mini.SetVariable(3,"Rise", pars[3], 0.00001)
-    mini.SetVariable(4,"Fall", pars[4], 0.00001)
-    mini.SetVariable(5,"R_cs", pars[5], 0.0000000001)
-    mini.SetVariableLimits(0, trace_start-20, trace_start-5)
-    mini.SetVariableLimits(1, 0.5, 1.5)
-    mini.SetVariableLimits(2, N*0.8, N*1.2)
-    mini.SetVariableLimits(3, 0.79, .81)
-    mini.SetVariableLimits(4, 5., 15.)
-    mini.SetVariableLimits(5, 0.06, 0.001)
+    mini.SetValidError(True)
+    myMinimizer = MinuitMinimize(pdf_h, response_h, lead_time=20)
+    mini.SetFunction(myMinimizer)
+
+    # Get some useful values from the hist for seeding fit
+    #N = pdf_h.Integral('width')
+    N = pdf_h.Integral()
+    peak_centre = pdf_h.GetXaxis().GetBinLowEdge( pdf_h.GetMaximumBin() )
+    trace_start = x[pdf_h.FindFirstBinAbove( 5 )]
+    trace_end = pdf_h.GetXaxis().GetBinLowEdge( pdf_h.GetXaxis().GetNbins() )
+    fit_start = trace_start - myMinimizer._lead_time
+
+    pars = [fit_start+1., # Account for offset in fit function
+            N,
+            2.,
+            40.,
+            0.01]
+
+    # Set initial values and constraints for fit
+    mini.SetVariable(0,"t_0", pars[0], dx/10.)
+    mini.SetVariable(1,"N", pars[1], 1)
+    mini.SetVariable(2,"Rise", pars[2], 0.001)
+    mini.SetVariable(3,"Fall", pars[3], 0.001)
+    mini.SetVariable(4,"R_cs", pars[4], 0.00001)
+    mini.SetVariableLimits(0, fit_start+0.2, fit_start+1.2)
+    mini.SetVariableLimits(1, N*0.95, N*1.05)
+    mini.SetVariableLimits(2, 1.25, 2.5)
+    mini.SetVariableLimits(3, 35., 50.)
+    mini.SetVariableLimits(4, 0.1, 0.001)
+
     start = time.time()
     mini.Minimize()
     end = time.time()
-
+    mini.Hesse()
+    
     # Get final parameters and their errors
     pars, errors = getPythonPars(mini)
 
     # Print final results to screen
     print "\nResults:"
-    print "Chi2/NDF: \t{0:.0f} / {1:.0f}".format(minuitMini._chi2, (minuitMini._nActive_bins -
-                                                                    minuitMini._nDim))
+    print "Chi2/NDF: \t{0:.0f} / {1:.0f}".format(myMinimizer._chi2, (myMinimizer._nActive_bins -
+                                                                    myMinimizer._nDim))
     for i, par in enumerate(pars):
         print "{0}: \t{1:.2E} +/- {2:.2E}".format(mini.VariableName(i), par, errors[i])
-    print trace_start
+    print ""    
+    print "t0 = initial guess + {0:.3f} ns".format(pars[0] - fit_start)
+    print "Fitting took {0:.1f}s".format(end-start)
+    print ""
 
-    # Get fit and data - offset appropriately for plotting!
-    fit_x, fitted = minuitMini.FitFunc( pars )
-    general_offset = len(minuitMini._x) - len(fit_x) + minuitMini._lead_time_offset
+    # Get fit and data - offset appropriately for plotting
+    fit_x, fit = myMinimizer.FitFunc( pars )
+    offset = len(myMinimizer._x) - len(fit_x) + myMinimizer._lead_time_offset
+    data = myMinimizer._bin_contents[offset:]
+    plot_x = fit_x[:len(data)]
 
-    data = minuitMini._bin_contents[general_offset:]
-    fitted = fitted[:-minuitMini._lead_time_offset]
-    plot_x = np.arange(-minuitMini._lead_time, (len(fitted)-minuitMini._lead_time_offset-1)*dx, dx)
-
-    # Make hitsograms to hold data and fit results
-    fitted_h= ROOT.TH1D("Fit_h","",len(plot_x)-1, np.array(plot_x, dtype=np.float64))
+    # Make data and fit histograms for plotting    
     data_h= ROOT.TH1D("Data_h","",len(plot_x)-1, np.array(plot_x, dtype=np.float64))
-    fitted_h.SetContent( np.array(fitted, dtype=np.float64) )
     data_h.SetContent( np.array(data, dtype=np.float64) )    
     data_h.GetXaxis().SetTitle("Time residuals [ns]")
     data_h.GetYaxis().SetTitle("Counts / {:.2f} ns".format(dx))
+    data_h.SetLineColor( ROOT.kBlack )
+    data_h.SetMarkerColor( ROOT.kBlack )
 
-    # Draw histos to canvas
-    can = ROOT.TCanvas("c1", "c1", 1000, 800)
-    data_h.Draw("E")
-    fitted_h.SetLineColor(ROOT.kRed)
-    fitted_h.Draw("SAME")
-    can.Update()
+    fit_h= ROOT.TH1D("Fit_h","",len(plot_x)-1, np.array(plot_x, dtype=np.float64))
+    for i in range(len(plot_x)-1):
+        fit_h.SetBinError(i, 0)
+    fit_h.SetContent( np.array(fit, dtype=np.float64) )
+    fit_h.SetLineColor( ROOT.kRed )
+    fit_h.SetMarkerColor( ROOT.kRed )
 
-    # Draw a box with the results
-    tPave = ROOT.TPaveText(0.63, 0.6, 0.88, 0.885, "NDC")
+    # Make diff and Chi2 histos for inlay plot
+    diff_h = rootplot.makeDiffHisto(data_h, fit_h)
+    diff_h.SetLineColor( ROOT.kBlack )
+    diff_h.SetMarkerColor( ROOT.kBlack )
+    diff_h.GetXaxis().SetTitle("Time residuals [ns]")
+    diff_h.GetYaxis().SetTitle("Data - fit")
+    diff_h.GetXaxis().SetTitleOffset(2.)
+    chi2_per_bin_h = rootplot.makeChi2Histo(data_h, fit_h)
+    chi2_per_bin_h.SetLineColor( ROOT.kBlack )
+    chi2_per_bin_h.SetMarkerStyle( 7 )
+    chi2_per_bin_h.SetMarkerSize( 0.5 )
+    chi2_per_bin_h.SetMarkerColor( ROOT.kBlack )
+    chi2_per_bin_h.GetXaxis().SetTitle("Time residuals [ns]")
+    chi2_per_bin_h.GetYaxis().SetTitle("Chi2 per bin")
+    chi2_per_bin_h.GetXaxis().SetTitleOffset(2.)
+    
+    # Only show the interesting range of the histograms we've just built
+    last_bin = data_h.FindLastBinAbove( 0 )
+    data_h.GetXaxis().SetRange(0, last_bin)
+    fit_h.GetXaxis().SetRange(0, last_bin)
+    diff_h.GetXaxis().SetRange(0, last_bin)
+    chi2_per_bin_h.GetXaxis().SetRange(0, last_bin)
+    
+    # Make comparison plot
+    #can, p1, p2 = rootplot.makeResidualComparison(data_h, fit_h, diff_h)
+    can, p1, p2 = rootplot.makeResidualComparison(data_h, fit_h, chi2_per_bin_h)
+    
+    # Draw a box summarising the results in the main plot
+    p1.cd()
+    tPave = ROOT.TPaveText(0.63, 0.6, 0.88, 0.96, "NDC")
     tPave.SetFillColor(ROOT.kWhite)
     tPave.SetBorderSize(1)
     tPave.SetTextAlign(12)
-    tPave.AddText("Chi2/NDF = {0:.0f} / {1:.0f}".format(minuitMini._chi2, (minuitMini._nActive_bins -
-                                                                          minuitMini._nDim)))
+    tPave.AddText("Chi2/NDF = {0:.0f} / {1:.0f}".format(myMinimizer._chi2, (myMinimizer._nActive_bins -
+                                                                            myMinimizer._nDim)))
     tPave.AddLine(.0,.85,1.,.85);
-    tPave.AddText("t_0     = {0:.1f} +/- {1:.2f} ns".format(pars[0], errors[0]))
-    tPave.AddText("Det resolution = {0:.2f} +/- {1:.2f} ns".format(pars[1], errors[1]))
-    tPave.AddText("N_e     = {0:.1f} +/- {1:.1f}".format(pars[2], errors[2]))
-    tPave.AddText("#tau_r        = {0:.2f} +/- {1:.2f} ns".format(pars[3], errors[3]))
-    tPave.AddText("#tau_f        = {0:.1f} +/- {1:.1f} ns".format(pars[4], errors[4]))
-    tPave.AddText("Ceren/Scint    = {0:.4f} +/- {1:.4f}".format(pars[5], errors[5]))
+    tPave.AddText("t_0       = {0:.1f} +/- {1:.2f} ns".format(pars[0], errors[0]))
+    tPave.AddText("N_e      = {0:d} +/- {1:d}".format(int(pars[1]), int(errors[1])))
+    tPave.AddText("#tau_r        = {0:.2f} +/- {1:.2f} ns".format(pars[2], errors[2]))
+    tPave.AddText("#tau_f        = {0:.1f} +/- {1:.1f} ns".format(pars[3], errors[3]))
+    tPave.AddText("Ceren/Scint    = {0:.4f} +/- {1:.4f}".format(pars[4], errors[4]))
     tPave.Draw()
-                                                
+
+    # Draw a line on the inlay plot to guide the eye
+    p2.cd()
+    last_value = data_h.GetBinLowEdge( last_bin )
+    line = ROOT.TLine(-10,0,last_value,0)
+    line.SetLineColorAlpha(ROOT.kRed, 0.9)
+    line.SetLineStyle(2)
+    line.Draw()
+    
+    # Some extra plots
+    can_chi2 = ROOT.TCanvas("Chi2", "Chi2")
+    chi2_h = ROOT.TH1D("Chi2","Chi2 per bin distribution: Best fit",100, 0, 10)
+    for i, entry in enumerate(data):
+        diff = entry - fit[i]
+        chi2_h.Fill((diff*diff)/fit[i])
+    chi2_h.GetXaxis().SetTitle("Chi2")
+    chi2_h.Draw("")
+
+    can_corr = ROOT.TCanvas("Correlations","Correlations")
+    corr_matrix_h = plot_correlation_matrix(mini)
+    corr_matrix_h.Draw("TEXT")
+
+    can_chi2.Update()
+    can_corr.Update()
+    can.Update()
     
     raw_input("Hit enter...")

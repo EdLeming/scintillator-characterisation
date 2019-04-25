@@ -64,7 +64,7 @@ class Hdf5FileReader(FileReader):
         start = time.time()
         for channel in self._files:
             self.read_hdf5_file(self._files[channel], nevents=nevents)
-        print "Took {0:.3f}s to read {1:d} events from:".format(time.time()-start, nevents)
+        print "Took {0:.1f}s to read {1:d} events from:".format(time.time()-start, nevents)
         for f in self.get_files():
             print f
         return self._x, self._channel_data
@@ -111,7 +111,6 @@ class TraceFileReader(FileReader):
         '''If we've made any tempory (memory map) files, delete them
         '''
         for tmp_file in self._memory_maps:
-            print "Deleting tempory storage file {0}".format(tmp_file)
             os.remove(tmp_file)
         
     def set_file_path(self, fname):
