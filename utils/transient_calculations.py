@@ -7,30 +7,6 @@ colors = [ROOT.kBlack, ROOT.kRed-4,
           ROOT.kBlue, ROOT.kMagenta+1,
           ROOT.kGray, ROOT.kOrange+7]
 
-def threshold_finder(x,y):
-    f = positiveCheck(y)
-    noise_h = ROOT.TH1D("noise_h","noise",50,-1,1)
-    #Get time stamps for first section of trace, should contain only noise
-    time_1 = 0
-    time_2 = 150
-    index_1 = np.where(x>time_1)[0][0]
-    index_2 = np.where(x>time_2)[0][0]
-    #Create histogram of the maximum noise
-    for i, event in enumerate(y):
-        y_section = event[index_1:index_2]
-        noise = min(y_section)
-        noise_h.Fill(noise)
-    #Set threshold at 3 sigma above the mean noise
-    threshold = noise_h.GetMean()
-    std = noise_h.GetStdDev()
-    if f:
-        std = std
-    else:
-        std = -std
-    threshold = threshold + std*3
-
-    return threshold
-
 def rms(alist):
     '''Calc rms of 1d array'''
     if len(alist) > 1:
@@ -64,13 +40,14 @@ def calcArea(x, y):
         integral[i] = np.trapz(y[i,:],x)
     return np.mean(integral), rms(integral), integral
  
-def calcPartialArea(x,y,no_events=1e4,window=20,threshold=-0.05,areaCut=1,early=True):
+def calcPartialArea(x,y,window=20,threshold=-0.05,areaCut=1,early=True):
     '''Calc area between two times, can be used for either late or early light'''
     integral = []
     f = positiveCheck(y)
     valid_events = 0
     #Find area threshold by sorting pulses in data set and choosing only a certain fraction
-    area = np.zeros(len(y[:,0]))
+    no_events=len(y[:,0])
+    area = np.zeros(no_events)
     for i, event in enumerate(y):
         area[i] = np.trapz(event,x)
     area.sort()
@@ -112,7 +89,7 @@ def calcPartialArea(x,y,no_events=1e4,window=20,threshold=-0.05,areaCut=1,early=
         if valid_events % 2000 == 0:
             print "{0} events processed".format(valid_events)
     
-    return integral
+    return integral    
 
 def calcPulseRatios(x, y1, y2):
     """Calc the ratio of the pulse areas"""
@@ -319,3 +296,47 @@ def calcLeadingEdgeTimestamp(x, y, peak_index, thresh, positive=False, plot=Fals
         plt.axhline(thresh, 0, 1, linestyle="--", linewidth=0.5, alpha=0.5)
         plt.show()
     return timestamp
+
+def calcEarlyLateRatio(x, event, threshold=-0.05, window=15, full_width=200, rise=False):
+    """Calc early late ratio for single transient"""
+    start_time = interpolateThreshold(x, event, threshold, rise=rise)
+    window_edge = start_time + window
+    end_time = start_time + full_width
+    if end_time > 500:
+        end_time = 500
+        
+    start_index = np.where(x > start_time)[0][0]
+    window_edge_index = np.where(x > window_edge)[0][0]
+    end_index = np.where(x > end_time)[0][0]
+    
+    y_early = event[start_index:window_edge_index]
+    y_late = event[window_edge_index:end_index]
+    
+    x_early = x[start_index:window_edge_index]
+    x_late = x[window_edge_index:end_index]
+    
+    early_integral = np.trapz(y_early,x_early)
+    late_integral = np.trapz(y_late, x_late)
+    
+    return float(early_integral / late_integral)
+
+def thresholdFinder(x,y,early_window=[0, 150]):
+    f = positiveCheck(y)
+    noise_h = ROOT.TH1D("noise_h","noise",50,-1,1)
+    #Get time stamps for first section of trace, should contain only noise
+    index_1 = np.where(x>early_window[0])[0][0]
+    index_2 = np.where(x>early_window[1])[0][0]
+    #Create histogram of the maximum noise
+    for i, event in enumerate(y):
+        y_section = event[index_1:index_2]
+        noise = min(y_section)
+        noise_h.Fill(noise)
+    #Set threshold at 3 sigma above the mean noise
+    threshold = noise_h.GetMean()
+    std = noise_h.GetStdDev()
+    if f:
+        std = std
+    else:
+        std = -std
+    threshold = threshold + std*3
+    return threshold

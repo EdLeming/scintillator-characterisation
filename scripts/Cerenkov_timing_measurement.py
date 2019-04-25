@@ -6,6 +6,12 @@ import utils.transient_calculations as calc
 import utils.digital_filters as digital_filters
 
 
+def calcCharge(x, y, termination=50.):
+    '''Calculate the 
+    '''
+    yc = (y - np.mean(y[:100])) / termination
+    return np.abs(np.trapz(yc,x*1e-9))
+
 if __name__ == "__main__":
     import argparse
     import time
@@ -57,6 +63,20 @@ if __name__ == "__main__":
         print "Couldn't find channel {0:d} in the passed data set".format(args.trigger_channel)
         sys.exit(0)
 
+    ##########################
+    # Get an initial charge measurement for setting histogram limits
+    check_events = 10000
+    if no_events < check_events:
+        check_events = no_events
+    trigger_charge = np.zeros(check_events)
+    for i in range(check_events):
+        trigger_charge[i] = calcCharge(x, trigger_traces[i,:])        
+    trigger_charge_end = round( (np.median(sorted(trigger_charge)[-100:])*1e10), 1)*1e2 #pC
+    ##########################
+    # Define a range of thresholds to apply on the trigger channel
+    cf_thresholds = np.arange(0.05, 0.45, 0.05)
+    abs_thresholds = np.arange(-0.01, -0.11, -0.01)
+        
     #####################
     # ROOT stuff - book some histos
     ROOT.gROOT.SetBatch(True)
@@ -68,16 +88,50 @@ if __name__ == "__main__":
     mean_trigger_h.GetXaxis().SetTitle("Time [ns]")
     mean_trigger_h.GetYaxis().SetTitle("Average Voltage / {0:.2f} ns".format(dx))
 
-    dt_h = ROOT.TH1D("Convolved-response",
-                     "Time resolution between scintillating fibre trigger and Cerenkov light",
-                     int(1000*(1./dx)), -500, 500)
-    dt_h.GetXaxis().SetTitle("Pulse separation [ns]")
-    
-    # Loop over events and calculate timestamps for observed events
+    trigger_charge_h = ROOT.TH1D("TriggerCharge", "", 200, 0, trigger_charge_end*1.3)
+    trigger_charge_h.GetXaxis().SetTitle("Pulse integral [pC]")
+
+    cf_histos, abs_histos = [], []
+    cf_ntuple_strings, abs_ntuple_strings = [], []
+    for j, fraction in enumerate(cf_thresholds):
+        cf_histos.append(ROOT.TH1D("dt_thresh{0:d}".format(int(fraction*100)),
+                                   "Coincidence timing resolution: trigger signal threshold {:d} %".format(int(fraction*100)),
+                                   int((600./dx)), -100, 500))
+        cf_histos[-1].GetXaxis().SetTitle("Pulse separation [ns]")
+        cf_ntuple_strings.append("cf_{:.2f}".format(fraction).replace(".","p"))
+    # Make fixed threshold histograms
+    abs_histos = []
+    for j, thresh in enumerate(abs_thresholds):
+        abs_histos.append(ROOT.TH1D("dt_thresh{0:.2}V".format(thresh),
+                                   "Coincidence timing resolution: trigger signal threshold {:.2f} V".format(thresh),
+                                   int((600./dx)), -100, 500))
+        abs_histos[-1].GetXaxis().SetTitle("Pulse separation [ns]")
+        abs_ntuple_strings.append("led_{:.2f}V".format(np.abs(thresh)).replace(".","p"))
+
+    ##########################
+    # Make an NTuple for storing data
+    base_ntuple_string = "eventID:TriggerQ:SignalQ"
+    cf_string = ":".join(cf_ntuple_strings)
+    abs_string = ":".join(abs_ntuple_strings)
+    ntuple_string ="{0}:{1}:{2}".format(base_ntuple_string,cf_string,abs_string)
+    ntuple = ROOT.TNtuple( 'ntuple', 'ntuple', ntuple_string)
+    #################################
+    # Some variables for use when looping
     signal_h = ROOT.TH1D("", "", len(x), x[0], x[(len(x)-1)])    
     trigger_h = ROOT.TH1D("", "", len(x), x[0], x[(len(x)-1)])
-    start = time.time()
-    for i in range(args.no_events):            
+    cf_trigger_times = np.zeros(len(cf_thresholds))
+    abs_trigger_times = np.zeros(len(abs_thresholds))
+    # For the ntuple
+    ntuple_head = np.zeros(3, dtype=np.float32)
+    ntuple_cf_dt = np.zeros(len(cf_thresholds), dtype=np.float32)
+    ntuple_abs_dt = np.zeros(len(abs_thresholds), dtype=np.float32)
+    ntuple_array = np.zeros( (len(ntuple_head)
+                              + len(ntuple_cf_dt)
+                              + len(ntuple_abs_dt)), dtype=np.float32)
+    counter, start = 0, time.time()
+    #################################
+    # Loop over events
+    for i in range(no_events):
         signal_clean = digital_filters.butter_lowpass_filter(signal_traces[i,:], fs, cutoff=500e6)
         try:
             peaks = calc.peakFinder(x, signal_clean, thresh=-0.07, min_deltaT=8.)
@@ -116,34 +170,84 @@ if __name__ == "__main__":
         # Only continue is there is a single peak
         if not len(trigger_peaks) == 1:
             continue
-        
-        # Calc timestamps for trigger tube
-        trigger_time = 0
-        thresh = trigger_clean[trigger_peaks[0]]*0.1
-        try:
-            trigger_time = calc.calcLeadingEdgeTimestamp(x, trigger_clean, trigger_peaks[0], thresh)
-        except IndexError as e:
-            print "Event {0:d}: Trigger thresh index error {1}".format(i, e)
+
+        # Calc timestamps for trigger events
+        for j, fraction in enumerate(cf_thresholds):
+            thresh = trigger_clean[trigger_peaks[0]]*fraction
+            try:
+                cf_trigger_times[j] = calc.calcLeadingEdgeTimestamp(x,
+                                                                    trigger_clean,
+                                                                    trigger_peaks[0],
+                                                                    thresh,
+                                                                    plot=False)
+            except IndexError as e:
+                idx_error = True
+                print "Event {0:d}: Constant fraction evaluation error {1}".format(i, e)
+                break
+        if idx_error:
             continue
 
+        # Fixed threshold
+        for j, thresh in enumerate(abs_thresholds):
+            try:
+                abs_trigger_times[j] = calc.calcLeadingEdgeTimestamp(x,
+                                                                     trigger_clean,
+                                                                     trigger_peaks[0],
+                                                                     thresh)
+            except IndexError as e:
+                idx_error = True
+                print "Event {0:d}: Fixed threshold evaluation error {1}".format(i, e)
+                break
+        if idx_error:
+            continue
+        # Calc charges for this event - these have to be in arrays for the ntuple to get filled correctly
+        trigger_Q = calcCharge(x, trigger_clean)
+        signal_Q = calcCharge(x, signal_clean)
         # Fill histograms
         signal_h.SetContent( np.array( signal_clean, dtype=np.float64) )
         trigger_h.SetContent( np.array( trigger_clean, dtype=np.float64) )
-
         mean_signal_h.Add(signal_h)
         mean_trigger_h.Add(trigger_h)
-        for sig in fast_times:
-            dt_h.Fill(sig - trigger_time)
-            
-        if i % 10000 == 0 and i is not 0:
-            print "{0} events processed".format(i) 
+        trigger_charge_h.Fill(trigger_Q*1e12)
+        for j, trig in enumerate(cf_trigger_times):
+            for sig in fast_times:
+                dt = sig - trig
+                cf_histos[j].Fill(dt)
+                ntuple_cf_dt[j] = dt
+        for j, trig in enumerate(abs_trigger_times):
+            for sig in fast_times:
+                dt = sig - trig
+                abs_histos[j].Fill(dt)
+                ntuple_abs_dt[j] = dt
+        # Fill the ntuple
+        ntuple_head[0] = i
+        ntuple_head[1] = trigger_Q*1e12
+        ntuple_head[2] = signal_Q*1e12
+        np.concatenate((ntuple_head, ntuple_cf_dt, ntuple_abs_dt), out=ntuple_array)
+        ntuple.Fill(ntuple_array)
+        # Increment counter and print
+        counter = counter + 1
+        if i % 10000 == 0 and i > 0:
+            print "Evaluated {:d} pulse pairs, {:d} had signals".format(i, counter)
+
+    ##############################
+    # Save histos and exit
     end = time.time()
     print "{0} events took {1:.2f}s to process [{2:.4f} s/evt]".format(i+1,
                                                                        (end-start),
                                                                        (end-start)/(i+1))
     outfile = ROOT.TFile(args.outfile, "RECREATE")
+    trigger_charge_h.Write()
+
+    mean_signal_h.Scale( 1. / counter )
+    mean_trigger_h.Scale( 1. / counter )
+    
     mean_signal_h.Write()
     mean_trigger_h.Write()
-    dt_h.Write()
-    
+    for histo in cf_histos:
+        histo.Write()
+    for histo in abs_histos:
+        histo.Write()
+    # Write ntuple
+    ntuple.Write()
     print "Results written to: {0}".format(args.outfile)

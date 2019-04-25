@@ -73,9 +73,13 @@ if __name__ == "__main__":
     charge_end = round( (np.median(charge[-100:])*1e10), 1)*1e-10
     charge_cuts = np.arange(0, 700, 100)*1e-12
     
-    min_threshold = round(calc.rms( trigger[i,:200] ),2)*-2.
-    thresholds = np.linspace(min_threshold, args.max_threshold, 4)
-
+    #min_threshold = round(calc.rms( trigger[i,:200] ),2)*-2.
+    #thresholds = np.linspace(min_threshold, args.max_threshold, 4)
+    #min_thresh = calc.thresholdFinder(x,y_dict[y_dict.keys()[0]][:no_events])*0.5
+    min_thresh = -0.005
+    thresholds = np.arange(min_thresh, args.max_threshold, -0.005)
+    print min_thresh, args.max_threshold, thresholds
+    
     #######################
     # Book some histograms
     summed_trigger_h = ROOT.TH1D("AverageTriggerPulse", "", len(x), x[0], x[(len(x)-1)])
@@ -85,6 +89,12 @@ if __name__ == "__main__":
     charge_h = ROOT.TH1D("TriggerCharge", "", 200, 0, charge_end*1.3*1e12)
     charge_h.GetXaxis().SetTitle("Pulse integral [pC]")
 
+    ratio_h = ROOT.TH1D("early_ratio",
+                        "Ratio of early to late light: 15 ns window",
+                        100,0,1.)
+    ratio_h.GetXaxis().SetTitle("Early light / Late Light")
+    ratio_h.GetYaxis().SetTitle("Counts / {0:.1f}".format(1./100.))
+    
     histos, basename = {}, ""
     for i, charge_cut in enumerate(charge_cuts):
         thresh_histos = []
@@ -135,7 +145,7 @@ if __name__ == "__main__":
             continue
             
         # Clean trigger signal and find timestamps
-        trigger_clean = digital_filters.butter_lowpass_filter(trigger[i,:], fs, cutoff=250e6)
+        trigger_clean = digital_filters.butter_lowpass_filter(trigger[i,:], fs, cutoff=100e6)
         for j, thresh in enumerate(thresholds):
             try:
                 trigger_times[j] = calc.interpolateThreshold(x, trigger_clean, thresh, rise=False)
@@ -144,6 +154,10 @@ if __name__ == "__main__":
                 break
         if idx_error:
             continue
+
+        early_ratio = calc.calcEarlyLateRatio(x, trigger_clean, threshold=thresholds[-3], window=15)
+        #if early_ratio > 0.3:
+        #    continue
         
         # Add entries into histograms
         Q = calcCharge(x, trigger_clean)
@@ -162,13 +176,14 @@ if __name__ == "__main__":
                         histos[cut][k].Fill(t)
 
         # For debugging
-        if t < -250:
-            plt.plot(x,signal_clean)
-            plt.plot(x,trigger[i,:])
-            plt.plot(x,trigger_clean)
+        #if t < -250:
+        #    plt.plot(x,signal_clean)
+        #    plt.plot(x,trigger[i,:])
+        #    plt.plot(x,trigger_clean)
             #plt.show()
 
         # Add event trigger characteristics into histograms
+        ratio_h.Fill(early_ratio)
         charge_h.Fill(Q*1e12)
         trigger_h.SetContent( np.array( trigger_clean, dtype=np.float64) )
         summed_trigger_h.Add(trigger_h)
@@ -183,6 +198,7 @@ if __name__ == "__main__":
     charge_h.Write()
     summed_trigger_h.Scale( 1. / counter )
     summed_trigger_h.Write()
+    ratio_h.Write()
     for cut in sorted(histos.keys()):
         for hist in histos[cut]:
             hist.Write()

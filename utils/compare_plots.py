@@ -14,6 +14,9 @@ if __name__ == "__main__":
     parser.add_argument("--normalise", dest="normalise",
                         action="store_true",
                         help="Do you want to normalise histogram integrals?")
+    parser.add_argument("--subtract", dest="subtract",
+                        action="store_true",
+                        help="Do you want to subtract the results?")
     args = parser.parse_args()
 
     ROOT.gStyle.SetOptStat(0)
@@ -44,19 +47,39 @@ if __name__ == "__main__":
         first_plot.Sumw2()
         second_plot.Sumw2()
         
-        first_plot.Scale( 1. / first_plot.Integral() )
-        second_plot.Scale( 1. / second_plot.Integral() )
+        first_plot.Scale( 1. / first_plot.Integral("width") )
+        second_plot.Scale( 1. / second_plot.Integral("width") )
+
         
+    first_plot.SetLineStyle(1)
+    first_plot.SetLineWidth(1)
+    first_plot.SetMarkerColor( ROOT.kBlue )
+    first_plot.SetLineColor( ROOT.kBlue )
+    
+    second_plot.SetMarkerColor( ROOT.kRed )
+    second_plot.SetLineColor( ROOT.kRed )
 
-    first_plot.SetMarkerColor( ROOT.kRed )
-    first_plot.SetLineColor( ROOT.kRed )
+    second_plot.SetLineStyle(1)
+    second_plot.SetLineWidth(1)
 
-    second_plot.SetMarkerColor( ROOT.kBlue )
-    second_plot.SetLineColor( ROOT.kBlue )
-
+    first_max = first_plot.GetMaximum()
+    second_max= second_plot.GetMaximum()
+    m = first_max
+    if m < second_max:
+        m = second_max
+    
     can = ROOT.TCanvas("c1", "c1") 
     
-    first_plot.Draw("")
-    second_plot.Draw("HIST SAME")
+    first_plot.Draw("HIST E")
+    second_plot.Draw("HIST E SAME")
+    first_plot.GetYaxis().SetRangeUser(0, m*1.1)
+    can.Update()
+    
+    if args.subtract:
+        subtraction_h = ROOT.TH1D(first_plot)
+        can_sub = ROOT.TCanvas("c2", "c2")
+        subtraction_h.Add(second_plot, -1)
+        subtraction_h.Draw("")
+        can_sub.Update()
     
     raw_input("Hit enter...")
