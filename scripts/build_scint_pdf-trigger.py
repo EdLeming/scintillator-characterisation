@@ -219,7 +219,7 @@ if __name__ == "__main__":
             trigger_peaks = calc.peakFinder(x,
                                             trigger_clean,
                                             thresh=abs_thresholds[-1],
-                                            min_deltaT=20.)
+                                            min_deltaT=15.)
         except IndexError as e:
             print "Event {0:d}: Trigger peak finder index error {1}".format(i, e)
             continue

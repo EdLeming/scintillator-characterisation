@@ -240,7 +240,7 @@ def peakFinder(x, y, thresh=-0.075, positive=False, min_deltaT=10., plot=False):
     # Differentiate to find first point of each pulse to cross thresh
     diff = np.diff(above_thresh)
     start_indicies = np.where( diff > 0.5 )[0]
-    if not start_indicies.any() or (min(y) < -1):
+    if not start_indicies.any():
         return []
     stop_indicies = np.where( diff < -0.5)[0]
     peak_indicies = np.zeros( len(start_indicies) )
