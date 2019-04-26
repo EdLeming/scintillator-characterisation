@@ -139,7 +139,8 @@ if __name__ == "__main__":
     threshold = np.zeros( 1, dtype=np.float32)
     charge = np.zeros( 1, dtype=np.float32)
     ntuple.SetBranchAddress(args.threshold, threshold)
-    ntuple.SetBranchAddress("NemoQ", charge)
+    #ntuple.SetBranchAddress("NemoQ", charge)
+    ntuple.SetBranchAddress("TriggerQ", charge)
 
     # Put the requested data into a histogram and plot
     can_dt = ROOT.TCanvas("dt","Custom plot")

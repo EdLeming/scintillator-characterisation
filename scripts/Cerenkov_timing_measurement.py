@@ -40,7 +40,7 @@ if __name__ == "__main__":
     else:
         myFileReader = file_reader.TraceFileReader(args.infile)
     x, y_dict = myFileReader.get_xy_data(nevents=args.no_events)
-
+    
     ################
     no_events = len(y_dict[y_dict.keys()[0]][:,0]) -1
     dx = x[1] - x[0]
@@ -62,7 +62,7 @@ if __name__ == "__main__":
     except KeyError as e:
         print "Couldn't find channel {0:d} in the passed data set".format(args.trigger_channel)
         sys.exit(0)
-
+        
     ##########################
     # Get an initial charge measurement for setting histogram limits
     check_events = 10000
@@ -134,7 +134,7 @@ if __name__ == "__main__":
     for i in range(no_events):
         signal_clean = digital_filters.butter_lowpass_filter(signal_traces[i,:], fs, cutoff=500e6)
         try:
-            peaks = calc.peakFinder(x, signal_clean, thresh=-0.07, min_deltaT=8.)
+            peaks = calc.peakFinder(x, signal_clean, thresh=-0.07, min_deltaT=8., plot=False)
         except IndexError as e:
             print "Event {0:d}: Signal peaks index error {1}".format(i, e)
             continue
@@ -158,9 +158,9 @@ if __name__ == "__main__":
             continue
             
         # Clean trigger tube signal and find timestamps
-        trigger_clean = digital_filters.butter_lowpass_filter(trigger_traces[i,:], fs, cutoff=350e6)
+        trigger_clean = digital_filters.butter_lowpass_filter(trigger_traces[i,:], fs, cutoff=500e6)
         try:
-            trigger_peaks = calc.peakFinder(x, trigger_clean, thresh=-0.1, min_deltaT=8.)
+            trigger_peaks = calc.peakFinder(x, trigger_clean, thresh=-0.5, min_deltaT=20., plot=False)
         except IndexError as e:
             print "Event {0:d}: Trigger peaks index error {1}".format(i, e)
             continue
@@ -168,18 +168,20 @@ if __name__ == "__main__":
             print "Event {0:d}: Trigger peaks value error {1}".format(i, e)
             continue
         # Only continue is there is a single peak
-        if not len(trigger_peaks) == 1:
+        #if not len(trigger_peaks) == 1:
+        if len(trigger_peaks) < 1:
             continue
 
         # Calc timestamps for trigger events
         for j, fraction in enumerate(cf_thresholds):
             thresh = trigger_clean[trigger_peaks[0]]*fraction
+            pl = False
             try:
                 cf_trigger_times[j] = calc.calcLeadingEdgeTimestamp(x,
                                                                     trigger_clean,
                                                                     trigger_peaks[0],
                                                                     thresh,
-                                                                    plot=False)
+                                                                    plot=pl)
             except IndexError as e:
                 idx_error = True
                 print "Event {0:d}: Constant fraction evaluation error {1}".format(i, e)
