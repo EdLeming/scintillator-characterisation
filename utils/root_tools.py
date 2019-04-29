@@ -1,3 +1,4 @@
+import sys
 import ROOT
 import numpy as np
 
@@ -6,6 +7,35 @@ def bufferToArray(buff, N):
     arr = np.array(buff,copy=True)
     return arr
             
+def getPythonPars(mini):
+    par_buff = mini.X()
+    try:
+        par_buff.SetSize(mini.NDim())
+        pars = np.array(par_buff,copy=True)
+    except:
+        print "Couldn't find pars"
+        pars = np.zeros(mini.NDim())
+
+    err_buff = mini.Errors()
+    try:
+        err_buff.SetSize(mini.NDim())
+        err = np.array(err_buff,copy=True)
+    except:
+        print "Couldn't find pars"
+        err = np.zeros(mini.NDim())
+
+    return pars, err
+
+def getXY(histo):
+    '''
+    Turn a histogram into x,y arrays
+    '''
+    x, y = [],[]
+    for i in range(histo.GetNbinsX()):
+        x.append(histo.GetBinLowEdge(i+1) + histo.GetBinWidth(i+1))
+        y.append(histo.GetBinContent(i+1))
+    return x,y
+
 def getHistoLowBins(histo):
     '''Get low edges of all bins in histo object
     '''
@@ -16,8 +46,8 @@ def getHistoLowBins(histo):
         edges[i] = histo.GetBinLowEdge(i+1) + width
         content[i] = histo.GetBinContent(i+1)
         error[i] = histo.GetBinError(i+1)
-    return edges, content, error
-    
+    return edges, content, error                       
+
 def makeDiffHisto(hist_1, hist_2):
     '''Make the MC - Data / Data histo
     '''
@@ -108,50 +138,103 @@ def makeResidualComparison(hist_1, hist_2, diff_hist, name="c1", line=None):
     return can, p1, p2
 
 
+def plotFromNtuple(fname,
+                   x=np.arange(-50,400,0.2),
+                   threshold="cf_0p05",
+                   trigger_cut=False,
+                   nemo_cut=False):
+    '''Read ntuple from file and make pulse separation plot
+    '''
+    # Read in file and check ntuple exists
+    try:
+        infile = ROOT.TFile(fname, "READ")
+        ntuple = infile.Get('ntuple')
+        nEvents = ntuple.GetEntriesFast()
+        print "Read ntuple with {:d} entries".format(nEvents)
+    except Exception as e:
+        print "Problem reading ntuple from: {0}\n{1}".format(fname, e)
+        sys.exit(0)        
+    # See if threshold branch exists
+    if not ntuple.GetBranchStatus(threshold):
+        print "Can't find branch {0} in ntuple".format(threshold)
+        sys.exit(0)
+    if trigger_cut and not ntuple.GetBranchStatus("TriggerQ"):
+        print "Can't find branch TriggerQ in ntuple"
+        sys.exit(0)
+    if nemo_cut and not ntuple.GetBranchStatus("NemoQ"):
+        print "Can't find branch NemoQ in ntuple"
+        sys.exit(0)
+
+    # Make containers to hold event by event results and set branch addresses
+    # - These have to be arrays because of root-python interface
+    thresh = np.zeros( 1, dtype=np.float32)
+    ntuple.SetBranchAddress(threshold, thresh)
+    if trigger_cut:
+        triggerQ = np.zeros( 1, dtype=np.float32)
+        ntuple.SetBranchAddress("TriggerQ", triggerQ)
+    if nemo_cut:
+        nemoQ = np.zeros( 1, dtype=np.float32)
+        ntuple.SetBranchAddress("NemoQ", nemoQ)
+
+    # Put the requested data into a histogram and plot
+    hist_dt = ROOT.TH1D("dt", "", len(x)-1, x)
+    title = "Thresh: {0}".format(threshold)
+    if trigger_cut:
+        title = "{0}, TriggerQ > {1:.1f}".format(title, trigger_cut)
+    if nemo_cut:
+        title = "{0}, NemoQ > {1:.1f}".format(title, nemo_cut)
+    hist_dt.SetTitle(title)
+    hist_dt.GetXaxis().SetTitle("Pulse separation [ns]")
+    for i, entry in enumerate(ntuple):
+        if trigger_cut:
+            if triggerQ[0] < trigger_cut:
+                continue
+        if nemo_cut:
+            if nemoQ[0] < nemo_cut:
+                continue
+        hist_dt.Fill(thresh[0])
+
+    hist_dt.DirectoryAutoAdd(0)
+    infile.Close()
+    return hist_dt
+
+def plotCorrelationMatrix(minimizer):
+
+    pars, errors = getPythonPars(minimizer)
+    nPars = len(pars)
+    matrix_h = ROOT.TH2D("CorrelationMatrix",
+                         "CorrelationMatrix",
+                         len(pars), 1, nPars,
+                         len(pars), 1, nPars)
+    for i in range(nPars):
+        matrix_h.GetXaxis().SetBinLabel(i+1, minimizer.VariableName(i))
+        matrix_h.GetYaxis().SetBinLabel(i+1, minimizer.VariableName(i))
+        for j in range(nPars):
+            matrix_h.SetBinContent(i+1, j+1, minimizer.Correlation(i,j))
+    return matrix_h
+
+
 if __name__ == "__main__":
-    import sys
     import argparse
     parser = argparse.ArgumentParser("%prog file [...]")
     parser.add_argument('fname', type=str,
                         help="Path to file containing ntuple")
     parser.add_argument('-t', '--threshold', type=str, default="cf_0p05",
                         help="Threshold required for dt calculation")
-    parser.add_argument('-q', '--charge_cut', type=float, default=50,
-                        help="Charge cut to be applied [50 pC]")
+    parser.add_argument('-q', '--nemo_cut', type=float, default=False,
+                        help="Charge cut to be applied in pC [None]")
+    parser.add_argument('-c', '--trigger_cut', type=float, default=False,
+                        help="Charge cut to be applied in pC [None]")
+
     args = parser.parse_args()
 
-    # Read in file and check ntuple exists
-    try:
-        infile = ROOT.TFile(args.fname, "READ")
-        ntuple = infile.Get('ntuple')
-        nEvents = ntuple.GetEntriesFast()
-        print "Read ntuple with {:d} entries".format(nEvents)
-    except Exception as e:
-        print "Problem reading ntuple from: {0}".format(args.fname)
-        sys.exit(0)        
-    # See if threshold branch exists
-    if not ntuple.GetBranchStatus(args.threshold):
-        print "Can't find branch {0} in ntuple".format(args.threshold)
-        sys.exit(0)
+    can_dt = ROOT.TCanvas("c1", "c1")
+    hist_dt =  plotFromNtuple(args.fname,
+                             x=np.arange(-50,400,0.2),
+                             threshold=args.threshold,
+                             trigger_cut=args.trigger_cut,
+                             nemo_cut=args.nemo_cut)
 
-    # Make containers to hold event by event results and set branch addresses
-    # - These have to be arrays because of root-python interface
-    threshold = np.zeros( 1, dtype=np.float32)
-    charge = np.zeros( 1, dtype=np.float32)
-    ntuple.SetBranchAddress(args.threshold, threshold)
-    #ntuple.SetBranchAddress("NemoQ", charge)
-    ntuple.SetBranchAddress("TriggerQ", charge)
-
-    # Put the requested data into a histogram and plot
-    can_dt = ROOT.TCanvas("dt","Custom plot")
-    dx = np.arange(-50, 400, 0.2)
-    hist_dt = ROOT.TH1D("dt_custom",
-                        "Thresh: {0}, NemoQ > {1:.1f}".format(args.threshold,args.charge_cut),
-                        len(dx)-1, dx)
-    hist_dt.GetXaxis().SetTitle("Pulse separation [ns]")
-    for i, entry in enumerate(ntuple):
-        if charge[0] > args.charge_cut:
-            hist_dt.Fill(threshold[0])
     hist_dt.Draw()
     can_dt.Update()
 

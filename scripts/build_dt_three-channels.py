@@ -7,7 +7,7 @@ import utils.digital_filters as digital_filters
 def calcCharge(x, y, termination=50.):
     '''Calculate the 
     '''
-    yc = (y - np.mean(y[:100])) / termination
+    yc = (y - np.mean(y[:200])) / termination
     return np.abs(np.trapz(yc,x*1e-9))
 
 if __name__ == "__main__":
@@ -82,9 +82,10 @@ if __name__ == "__main__":
         NEMO_charge[i] = calcCharge(x, charge_traces[i,:])
         trigger_charge[i] = calcCharge(x, trigger_traces[i,:])
         signal_charge[i] = calcCharge(x, trigger_traces[i,:])
-    NEMO_charge_end = round( (np.median(sorted(NEMO_charge)[-100:])*1e10), 1)*1e2       #pC
-    trigger_charge_end = round( (np.median(sorted(trigger_charge)[-100:])*1e10), 1)*1e2 #pC
-    signal_charge_end = round( (np.median(sorted(signal_charge)[-100:])*1e10), 1)*1e2   #pC
+    NEMO_charge_end = round( (np.median(sorted(NEMO_charge)[-150:])*1e10), 1)*1e2       #pC
+    trigger_charge_end = round( (np.median(sorted(trigger_charge)[-150:])*1e10), 1)*1e2 #pC
+    signal_charge_end = round( (np.median(sorted(signal_charge)[-150:])*1e10), 1)*1e2   #pC
+
     # Set an array of charge cuts.
     NEMO_charge_cuts = np.array([50])*1e-12 # Just one at 50 pC - others can be done in post processing
 
@@ -214,11 +215,11 @@ if __name__ == "__main__":
             continue
 
         # Clean trigger signal and find peaks
-        trigger_clean = digital_filters.butter_lowpass_filter(trigger_traces[i,:], fs, cutoff=350e6)
+        trigger_clean = digital_filters.butter_lowpass_filter(trigger_traces[i,:], fs, cutoff=500e6)
         try:
             trigger_peaks = calc.peakFinder(x,
                                             trigger_clean,
-                                            thresh=abs_thresholds[-1],
+                                            thresh=-0.5,
                                             min_deltaT=15.)
         except IndexError as e:
             print "Event {0:d}: Trigger peak finder index error {1}".format(i, e)
