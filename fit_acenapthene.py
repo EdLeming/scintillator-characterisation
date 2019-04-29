@@ -37,7 +37,7 @@ if __name__ == "__main__":
                                      threshold=args.threshold,
                                      trigger_cut=args.trigger_cut,
                                      nemo_cut=args.nemo_cut)    
-    x,y = rootplot.getXY(pdf_h)
+    x,y = root_tools.getXY(pdf_h)
     dx = x[1] - x[0]
 
     # Get system response
@@ -89,7 +89,7 @@ if __name__ == "__main__":
     mini.Hesse()
     
     # Get final parameters and their errors
-    pars, errors = RootUtils.getPythonPars(mini)
+    pars, errors = root_tools.getPythonPars(mini)
 
     # Print final results to screen
     print "\nResults:"
@@ -184,7 +184,7 @@ if __name__ == "__main__":
     chi2_h.Draw("")
 
     can_corr = ROOT.TCanvas("Correlations","Correlations")
-    corr_matrix_h = plot_correlation_matrix(mini)
+    corr_matrix_h = root_tools.plotCorrelationMatrix(mini)
     corr_matrix_h.Draw("TEXT")
 
     can_chi2.Update()
