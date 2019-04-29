@@ -6,7 +6,9 @@ import matplotlib.pyplot as plt
 import utils.root_tools as root_tools
 
 class ResponseModel( ROOT.TPyMultiGenFunction ):
-    ''' A base class to containing a function to be minimised that's compatible with minuit
+    ''' A base class compatible with the miunuit minimier
+        It generates a model from a set of passed parameters and returns a teststatisic taken
+        against the passed data set.
     '''
     def __init__(self, data_h, time_response_h, lead_time=5, nDim=5):
         ''' Initialise a response model datafile
@@ -55,7 +57,7 @@ class ResponseModel( ROOT.TPyMultiGenFunction ):
         return self._chi2
 
     def FitFunc(self, pars):
-        ''' A place holder method - to be superceeded by methods in inherited classes
+        ''' A place holder method - to be superceeded by methods in daughter classes
         '''
         pass
 
