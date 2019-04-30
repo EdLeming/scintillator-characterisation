@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 import time
 import ROOT
 import numpy as np
