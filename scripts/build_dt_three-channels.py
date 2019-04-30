@@ -82,7 +82,7 @@ if __name__ == "__main__":
     for i in range(check_events):
         NEMO_charge[i] = calcCharge(x, charge_traces[i,:])
         trigger_charge[i] = calcCharge(x, trigger_traces[i,:])
-        signal_charge[i] = calcCharge(x, trigger_traces[i,:])
+        signal_charge[i] = calcCharge(x, signal_traces[i,:])
     NEMO_charge_end = round( (np.median(sorted(NEMO_charge)[-150:])*1e10), 1)*1e2       #pC
     trigger_charge_end = round( (np.median(sorted(trigger_charge)[-150:])*1e10), 1)*1e2 #pC
     signal_charge_end = round( (np.median(sorted(signal_charge)[-150:])*1e10), 1)*1e2   #pC
