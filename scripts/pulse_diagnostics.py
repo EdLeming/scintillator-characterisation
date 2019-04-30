@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 import ROOT
 import numpy as np
 import utils.transient_calculations as calc
