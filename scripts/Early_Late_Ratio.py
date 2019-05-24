@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 import ROOT
+ROOT.PyConfig.IgnoreCommandLineOptions = True
 import numpy as np
 import matplotlib.pyplot as plt
 import utils.transient_calculations as calc

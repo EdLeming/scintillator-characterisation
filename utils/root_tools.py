@@ -1,5 +1,6 @@
 import sys
 import ROOT
+ROOT.PyConfig.IgnoreCommandLineOptions = True
 import numpy as np
 
 def bufferToArray(buff, N):

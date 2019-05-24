@@ -1,4 +1,5 @@
 import ROOT
+ROOT.PyConfig.IgnoreCommandLineOptions = True
 import numpy as np
 import matplotlib.pyplot as plt
 

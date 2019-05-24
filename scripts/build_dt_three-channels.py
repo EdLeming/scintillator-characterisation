@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 import time
 import ROOT
+ROOT.PyConfig.IgnoreCommandLineOptions = True
 import numpy as np
 import utils.transient_calculations as calc
 import utils.digital_filters as digital_filters

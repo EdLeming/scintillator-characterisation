@@ -1,5 +1,6 @@
 import sys
 import ROOT
+ROOT.PyConfig.IgnoreCommandLineOptions = True
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -19,7 +20,7 @@ if __name__ == "__main__":
                         help="Path to data file containing a measurement of the system timing resolution")
     parser.add_argument('-t', '--threshold', type=str, default='cf_0p05',
                         help='Leading edge threshold used to calculate tirgger and signal pulse separation')
-    parser.add_argument('-q', '--nemo_cut', type=float, default=50,
+    parser.add_argument('-q', '--nemo_cut', type=float, default=100,
                         help='Select only events in which the NEMO tube measured a charge greater than this cut [50pC]')
     parser.add_argument('-c', '--trigger_cut', type=float, default=200,
                         help='Select only events in the trigger tube measured a charge greater than this cut [100pC]')
@@ -45,7 +46,7 @@ if __name__ == "__main__":
                                           x=x_array,
                                           threshold=args.threshold,
                                           trigger_cut=args.trigger_cut)
-    
+
     # Set up minimiser object with custom class object where we define our function
     mini = ROOT.Math.Factory.CreateMinimizer("Minuit2", "Migrad")
     mini.SetMaxFunctionCalls(10000000)
@@ -78,10 +79,10 @@ if __name__ == "__main__":
     mini.SetVariable(3,"Fall", pars[3], 0.001)
     mini.SetVariable(4,"R_cs", pars[4], 0.00001)
     mini.SetVariableLimits(0, N*0.95, N*1.05)
-    mini.SetVariableLimits(1, fit_start+0.1, fit_start+1.5)
-    mini.SetVariableLimits(2, 1.25, 2.5)
-    mini.SetVariableLimits(3, 30., 50.)
-    mini.SetVariableLimits(4, 0.11, 0.001)
+    mini.SetVariableLimits(1, fit_start+0.25, fit_start+1.5)
+    mini.SetVariableLimits(2, 0.05, 2.5)
+    mini.SetVariableLimits(3, 5., 20.)
+    mini.SetVariableLimits(4, 0.1, 0.005)
 
     start = time.time()
     mini.Minimize()
