@@ -206,7 +206,7 @@ if __name__ == "__main__":
         # Clean single photon signal and find peaks
         signal_clean = digital_filters.butter_lowpass_filter(signal_traces[i,:], fs, cutoff=500e6)
         try:
-            signal_peaks = calc.peakFinder(x, signal_clean, thresh=-0.075, min_deltaT=8.)
+            signal_peaks = calc.peakFinder(x, signal_clean, thresh=-0.2, min_deltaT=10.)
         except IndexError as e:
             print "Event {0:d}: Signal peak finder index error {1}".format(i, e) 
             continue
@@ -222,7 +222,7 @@ if __name__ == "__main__":
             trigger_peaks = calc.peakFinder(x,
                                             trigger_clean,
                                             thresh=-0.5,
-                                            min_deltaT=15.)
+                                            min_deltaT=20.)
         except IndexError as e:
             print "Event {0:d}: Trigger peak finder index error {1}".format(i, e)
             continue
@@ -290,17 +290,17 @@ if __name__ == "__main__":
             else:
                 if NEMO_Q >= cut:
                     accept = True
-            if accept:
-                for k, trig in enumerate(cf_trigger_times):
-                    for sig in signal_times:
-                        dt = sig - trig
-                        ntuple_cf_dt[k] = dt
+            for k, trig in enumerate(cf_trigger_times):
+                for sig in signal_times:
+                    dt = sig - trig
+                    ntuple_cf_dt[k] = dt
+                    if accept:
                         cf_histos[cut][k].Fill(dt)
-                        
-                for k, trig in enumerate(abs_trigger_times):
-                    for sig in signal_times:
-                        dt = sig - trig
-                        ntuple_abs_dt[k] = dt
+            for k, trig in enumerate(abs_trigger_times):
+                for sig in signal_times:
+                    dt = sig - trig
+                    ntuple_abs_dt[k] = dt
+                    if accept:
                         abs_histos[cut][k].Fill(dt)
         # Add event characteristics into histograms
         NEMO_charge_h.Fill(NEMO_Q*1e12)
