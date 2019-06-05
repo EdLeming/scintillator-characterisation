@@ -1,25 +1,21 @@
 #!/usr/bin/env python
+import sys
 import time
 import ROOT
 ROOT.PyConfig.IgnoreCommandLineOptions = True
 import numpy as np
+import matplotlib.pyplot as plt
+
+import config
+import utils.file_reader as file_reader
 import utils.transient_calculations as calc
 import utils.digital_filters as digital_filters
 
-def calcCharge(x, y, termination=50.):
-    '''Calculate the 
-    '''
-    yc = (y - np.mean(y[:200])) / termination
-    return np.abs(np.trapz(yc,x*1e-9))
-
 if __name__ == "__main__":
-    import sys
     import argparse
-    import matplotlib.pyplot as plt
-    import utils.file_reader as file_reader
     parser = argparse.ArgumentParser("Script to run diagnostrics on pulse shapes")
     parser.add_argument('infile', type=str,
-                        help="File(s) to be read in")
+                       help="File(s) to be read in")
     parser.add_argument('outfile', type=str,
                         help="Name of output (root) file to be generated")
     parser.add_argument('-n', '--no_events', type=int, default=10000,
@@ -30,12 +26,10 @@ if __name__ == "__main__":
                         help="Scope channel with the single photon trace")
     parser.add_argument('-t', '--trigger_channel', type=int, default=3,
                         help="Scope channel with trigger channel from scintillating fibre")
-    parser.add_argument('-m', '--max_threshold', type=float, default=-0.05,
-                        help="Highest threshold to be used on the trigger signal")
     args = parser.parse_args()
 
     # Run root in batch mode
-    ROOT.gROOT.SetBatch(True)
+    ROOT.gROOT.SetBatch(False)
     
     ##########################
     # Read in data and loop over each save channel
@@ -76,20 +70,33 @@ if __name__ == "__main__":
     
     ##########################
     # Get an initial charge measurement for setting histogram limits
-    check_events = 20000
+    print "Calculating appropriate charge range for histos..."
+    check_events = 10000
     if no_events < check_events:
         check_events = no_events
     NEMO_charge, trigger_charge, signal_charge = np.zeros(check_events), np.zeros(check_events), np.zeros(check_events)
     for i in range(check_events):
-        NEMO_charge[i] = calcCharge(x, charge_traces[i,:])
-        trigger_charge[i] = calcCharge(x, trigger_traces[i,:])
-        signal_charge[i] = calcCharge(x, signal_traces[i,:])
+        charge_clean = digital_filters.butter_lowpass_filter(charge_traces[i,:], fs,
+                                                             cutoff=config.NEMO_BW)
+        NEMO_charge[i] = calc.calcWindowedCharge(x, charge_clean,
+                                                 thresh=config.NEMO_thresh,
+                                                 window=config.NEMO_window)
+        
+        trigger_clean = digital_filters.butter_lowpass_filter(trigger_traces[i,:], fs,
+                                                              cutoff=config.trigger_BW)
+        trigger_charge[i] = calc.calcWindowedCharge(x, trigger_clean,
+                                                    thresh=config.trigger_thresh,
+                                                    window=config.trigger_window)
+
+        signal_clean = digital_filters.butter_lowpass_filter(signal_traces[i,:], fs,
+                                                             cutoff=config.signal_BW)
+        signal_charge[i] = calc.calcWindowedCharge(x, signal_clean,
+                                                   thresh=config.signal_thresh,
+                                                   window=config.signal_window)
+        
     NEMO_charge_end = round( (np.median(sorted(NEMO_charge)[-150:])*1e10), 1)*1e2       #pC
     trigger_charge_end = round( (np.median(sorted(trigger_charge)[-150:])*1e10), 1)*1e2 #pC
     signal_charge_end = round( (np.median(sorted(signal_charge)[-150:])*1e10), 1)*1e2   #pC
-
-    # Set an array of charge cuts.
-    NEMO_charge_cuts = np.array([50])*1e-12 # Just one at 50 pC - others can be done in post processing
 
     ##########################
     # Define a range of thresholds to apply on the trigger channel
@@ -98,14 +105,14 @@ if __name__ == "__main__":
 
     #######################
     # Book histograms    
-    NEMO_charge_h = ROOT.TH1D("NemoCharge", "", 200, 0, NEMO_charge_end*1.3)
+    NEMO_charge_h = ROOT.TH1D("NemoCharge", "", 200, 0, NEMO_charge_end*1.5)
     NEMO_charge_h.GetXaxis().SetTitle("Pulse integral [pC]")
 
-    trigger_charge_h = ROOT.TH1D("TriggerCharge", "", 200, 0, trigger_charge_end*1.3)
+    trigger_charge_h = ROOT.TH1D("TriggerCharge", "", 200, 0, trigger_charge_end*1.5)
     trigger_charge_h.GetXaxis().SetTitle("Pulse integral [pC]")
 
-    signal_charge_h = ROOT.TH1D("SignalCharge", "", 200, 0, signal_charge_end*1.3)
-    trigger_charge_h.GetXaxis().SetTitle("Pulse integral [pC]")
+    signal_charge_h = ROOT.TH1D("SignalCharge", "", 200, 0, signal_charge_end*1.5)
+    signal_charge_h.GetXaxis().SetTitle("Pulse integral [pC]")
 
     trigger_vs_NEMO_charge_h = ROOT.TH2D("TriggerVsNEMOCharge", "",
                                          50, 0, trigger_charge_end*1.3,
@@ -113,47 +120,35 @@ if __name__ == "__main__":
     trigger_vs_NEMO_charge_h.GetXaxis().SetTitle("Trigger Tube [pC]")
     trigger_vs_NEMO_charge_h.GetYaxis().SetTitle("NEMO [pC]")
 
-    mean_NEMO_h = ROOT.TH1D("AverageNEMOPulse", "", len(x), x[0], x[(len(x)-1)])
+    mean_NEMO_h = ROOT.TH1F("AverageNEMOPulse", "", len(x), x[0], x[(len(x)-1)])
     mean_NEMO_h.GetXaxis().SetTitle("Time [ns]")
     mean_NEMO_h.GetYaxis().SetTitle("Average Voltage / {0:.2f} ns".format(dx))
 
-    mean_trigger_h = ROOT.TH1D("AverageTriggerPulse", "", len(x), x[0], x[(len(x)-1)])
+    mean_trigger_h = ROOT.TH1F("AverageTriggerPulse", "", len(x), x[0], x[(len(x)-1)])
     mean_trigger_h.GetXaxis().SetTitle("Time [ns]")
     mean_trigger_h.GetYaxis().SetTitle("Average Voltage / {0:.2f} ns".format(dx))
 
-    mean_signal_h = ROOT.TH1D("AverageSignalPulse", "", len(x), x[0], x[(len(x)-1)])
+    mean_signal_h = ROOT.TH1F("AverageSignalPulse", "", len(x), x[0], x[(len(x)-1)])
     mean_signal_h.GetXaxis().SetTitle("Time [ns]")
     mean_signal_h.GetYaxis().SetTitle("Average Voltage / {0:.2f} ns".format(dx))
     
     # Loop over charge cuts and differnt thresholds to pick off
-    cf_histos, abs_histos, basename = {}, {}, ""
+    cf_histos, abs_histos = [], []
     cf_ntuple_strings, abs_ntuple_strings = [], []
-    for i, charge_cut in enumerate(NEMO_charge_cuts):
-        
-        if i < len(NEMO_charge_cuts)-1:
-            basename = "dt_cut_{:.0f}-{:.0f}pC".format(charge_cut*1e12, NEMO_charge_cuts[i+1]*1e12)
-        else:
-            basename = "dt_cut_{:.0f}pC".format(charge_cut*1e12)
-
-        # Make constant fraction histograms
-        histo_arr = []
-        for j, fraction in enumerate(cf_thresholds):
-            histo_arr.append(ROOT.TH1D("{0}_t{1:d}".format(basename, int(fraction*100)),
-                                        "Charge Cut {:.1f} pC, trigger signal threshold {:d} %".format(charge_cut*1e12, int(fraction*100)),
-                                        int((600./dx)), -100, 500))
-            histo_arr[-1].GetXaxis().SetTitle("Pulse separation [ns]")
-            cf_ntuple_strings.append("cf_{:.2f}".format(fraction).replace(".","p"))
-        cf_histos[charge_cut] = histo_arr
-
-        # Make fixed threshold histograms
-        histo_arr = []
-        for j, thresh in enumerate(abs_thresholds):
-            histo_arr.append(ROOT.TH1D("{0}_t{1:.2}V".format(basename, thresh),
-                                        "Charge Cut {:.1f} pC, trigger signal threshold {:.2f} V".format(charge_cut*1e12, thresh),
-                                        int((600./dx)), -100, 500))
-            histo_arr[-1].GetXaxis().SetTitle("Pulse separation [ns]")
-            abs_ntuple_strings.append("led_{:.2f}V".format(np.abs(thresh)).replace(".","p"))
-        abs_histos[charge_cut] = histo_arr
+    for j, fraction in enumerate(cf_thresholds):
+        cf_histos.append(ROOT.TH1D("dt_thresh{0:d}".format(int(fraction*100)),
+                                   "Coincidence timing resolution: trigger signal threshold {:d} %".format(int(fraction*100)),
+                                   int((600./dx)), -100, 500))
+        cf_histos[-1].GetXaxis().SetTitle("Pulse separation [ns]")
+        cf_ntuple_strings.append("cf_{:.2f}".format(fraction).replace(".","p"))
+    # Make fixed threshold histograms
+    abs_histos = []
+    for j, thresh in enumerate(abs_thresholds):
+        abs_histos.append(ROOT.TH1D("dt_thresh{0:.2}V".format(thresh),
+                                   "Coincidence timing resolution: trigger signal threshold {:.2f} V".format(thresh),
+                                   int((600./dx)), -100, 500))
+        abs_histos[-1].GetXaxis().SetTitle("Pulse separation [ns]")
+        abs_ntuple_strings.append("led_{:.2f}V".format(np.abs(thresh)).replace(".","p"))
 
     # Make charge vs dt histos
     dt_vs_NEMO_charge_cf_h = ROOT.TH2D("NEMOChargeVsdt-cf", "",
@@ -185,9 +180,9 @@ if __name__ == "__main__":
     # Define some variables to use when looping
     counter = 0
     start = time.time()
-    NEMO_h = ROOT.TH1D("", "", len(x), x[0], x[(len(x)-1)])
-    trigger_h = ROOT.TH1D("", "", len(x), x[0], x[(len(x)-1)])
-    signal_h = ROOT.TH1D("", "", len(x), x[0], x[(len(x)-1)])
+    NEMO_h = ROOT.TH1F("", "", len(x), x[0], x[(len(x))-1])
+    trigger_h = ROOT.TH1F("", "", len(x), x[0], x[(len(x))-1])
+    signal_h = ROOT.TH1F("", "", len(x), x[0], x[(len(x))-1])
     cf_trigger_times = np.zeros(len(cf_thresholds))
     abs_trigger_times = np.zeros(len(abs_thresholds))
     # For the ntuple
@@ -199,29 +194,30 @@ if __name__ == "__main__":
                               + len(ntuple_abs_dt)), dtype=np.float32)
     #################################
     # Loop over events
+    print "Beginning main loop"
     for i in range(no_events):
         if i % 5000 == 0 and i > 0:
             print "Evaluated {:d} pulse pairs, {:d} had signals".format(i, counter)
             
         # Clean single photon signal and find peaks
-        signal_clean = digital_filters.butter_lowpass_filter(signal_traces[i,:], fs, cutoff=500e6)
+        signal_clean = digital_filters.butter_lowpass_filter(signal_traces[i,:], fs, cutoff=config.signal_BW)
         try:
-            signal_peaks = calc.peakFinder(x, signal_clean, thresh=-0.2, min_deltaT=10.)
+            signal_peaks = calc.peakFinder(x, signal_clean, thresh=config.signal_thresh, min_deltaT=10.)
         except IndexError as e:
             print "Event {0:d}: Signal peak finder index error {1}".format(i, e) 
             continue
         except ValueError as e:
             print "Event {0:d}: Signal peak finder index error {1}".format(i, e)
             continue
-        if not signal_peaks: # If the fast 'signal' pmt didn't see anything, continue
+        if not signal_peaks.any(): # If the fast 'signal' pmt didn't see anything, continue
             continue
 
         # Clean trigger signal and find peaks
-        trigger_clean = digital_filters.butter_lowpass_filter(trigger_traces[i,:], fs, cutoff=500e6)
+        trigger_clean = digital_filters.butter_lowpass_filter(trigger_traces[i,:], fs, cutoff=config.trigger_BW)
         try:
             trigger_peaks = calc.peakFinder(x,
                                             trigger_clean,
-                                            thresh=-0.5,
+                                            thresh=config.trigger_thresh,
                                             min_deltaT=20.)
         except IndexError as e:
             print "Event {0:d}: Trigger peak finder index error {1}".format(i, e)
@@ -276,43 +272,41 @@ if __name__ == "__main__":
             continue
         
         # Clean NEMO pulse and find charge for binning results
-        charge_clean = digital_filters.butter_lowpass_filter(charge_traces[i,:], fs, cutoff=250e6)
+        charge_clean = digital_filters.butter_lowpass_filter(charge_traces[i,:], fs, cutoff=config.NEMO_BW)
         # Calc charges for this event - these have to be in arrays for the ntuple to get filled correctly
-        NEMO_Q = calcCharge(x, charge_clean)
-        trigger_Q = calcCharge(x, trigger_clean)
-        signal_Q = calcCharge(x, signal_clean)
+        NEMO_Q = calc.calcWindowedCharge(x, charge_clean,
+                                         thresh=config.NEMO_thresh,
+                                         window=config.NEMO_window)
+        trigger_Q = calc.calcWindowedCharge(x, trigger_clean,
+                                            thresh=config.trigger_thresh,
+                                            window=config.trigger_window)
+        signal_Q = calc.calcWindowedCharge(x, signal_clean,
+                                           thresh=config.signal_thresh,
+                                           window=config.signal_window)
         # Add entries into histograms
-        for j, cut in enumerate(NEMO_charge_cuts):
-            accept = False
-            if j < len(NEMO_charge_cuts)-1:
-                if NEMO_Q >= cut and NEMO_Q < NEMO_charge_cuts[j+1]:
-                    accept = True
-            else:
-                if NEMO_Q >= cut:
-                    accept = True
-            for k, trig in enumerate(cf_trigger_times):
-                for sig in signal_times:
-                    dt = sig - trig
-                    ntuple_cf_dt[k] = dt
-                    if accept:
-                        cf_histos[cut][k].Fill(dt)
-            for k, trig in enumerate(abs_trigger_times):
-                for sig in signal_times:
-                    dt = sig - trig
-                    ntuple_abs_dt[k] = dt
-                    if accept:
-                        abs_histos[cut][k].Fill(dt)
+        for k, trig in enumerate(cf_trigger_times):
+            for sig in signal_times:
+                dt = sig - trig
+                ntuple_cf_dt[k] = dt
+                cf_histos[k].Fill(dt)
+        for k, trig in enumerate(abs_trigger_times):
+            for sig in signal_times:
+                dt = sig - trig
+                ntuple_abs_dt[k] = dt
+                abs_histos[k].Fill(dt)
         # Add event characteristics into histograms
-        NEMO_charge_h.Fill(NEMO_Q*1e12)
-        trigger_charge_h.Fill(trigger_Q*1e12)
-        signal_charge_h.Fill(signal_Q*1e12)
-        trigger_vs_NEMO_charge_h.Fill(trigger_Q*1e12, NEMO_Q*1e12)
+        NEMO_h.SetContent( np.array( charge_clean, dtype=np.float64) )
         NEMO_h.SetContent( np.array( charge_clean, dtype=np.float64) )
         trigger_h.SetContent( np.array( trigger_clean, dtype=np.float64) )
         signal_h.SetContent( np.array( signal_clean, dtype=np.float64) )
         mean_NEMO_h.Add(NEMO_h)
         mean_trigger_h.Add(trigger_h)
         mean_signal_h.Add(signal_h)
+        # Charge stuff
+        NEMO_charge_h.Fill(NEMO_Q*1e12)
+        trigger_charge_h.Fill(trigger_Q*1e12)
+        signal_charge_h.Fill(signal_Q*1e12)
+        trigger_vs_NEMO_charge_h.Fill(trigger_Q*1e12, NEMO_Q*1e12)
         # Fill 2D histos
         for k, trig in enumerate(cf_trigger_times):
             for sig in signal_times:
@@ -328,7 +322,7 @@ if __name__ == "__main__":
         np.concatenate((ntuple_head, ntuple_cf_dt, ntuple_abs_dt), out=ntuple_array)
         ntuple.Fill(ntuple_array)
         # Increment counter
-        counter = counter + 1 
+        counter = counter + 1
     ##############################
     # Save histos and exit
     end = time.time()
@@ -350,12 +344,10 @@ if __name__ == "__main__":
     NEMO_charge_h.Write()
     trigger_charge_h.Write()
     signal_charge_h.Write()    
-    for cut in sorted(cf_histos.keys()):
-        for hist in cf_histos[cut]:
-            hist.Write()
-    for cut in sorted(abs_histos.keys()):
-        for hist in abs_histos[cut]:
-            hist.Write()
+    for histo in cf_histos:
+        histo.Write()
+    for histo in abs_histos:
+        histo.Write()
     trigger_vs_NEMO_charge_h.Write()
     dt_vs_NEMO_charge_cf_h.Write()
     dt_vs_trigger_charge_cf_h.Write()

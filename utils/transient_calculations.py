@@ -221,13 +221,20 @@ def calcJitter(x1, y1, x2, y2, threshold=0.1):
         times[i] = time_1 - time_2
     return np.mean(times), np.std(times), np.std(times)/np.sqrt(2*len(y1[:,0]))
 
-
-def rootifyXY(x, y, scaling=1, name="", title=""):
-    '''Turn xy array into a TH1D'''
-    hist = ROOT.TH1D(name, title, len(x), x)
-    for i, entry in enumerate(y):
-        hist.SetBinContent(i, entry*scaling)
-    return hist
+def calcWindowedCharge(x, y, termination=50., window=[-10, 190], thresh=-0.03, scale=1e-9 ):
+    '''Calculate the charge around a threshold window
+    '''
+    try:
+        first_peak = peakFinder(x, y, thresh=thresh, min_deltaT=10.)[0]
+    except IndexError as e:
+        return 0.
+    dt = x[1] - x[0]
+    start = int(first_peak + window[0]*1./dt)
+    end = int(first_peak + window[1]*1./dt)
+    if end > len(y):
+        end = len(y)
+    yc = np.take(y, np.arange(start,end,1)) / termination
+    return np.abs(np.trapz(yc,dx=dt*scale))
 
 def peakFinder(x, y, thresh=-0.075, positive=False, min_deltaT=10., plot=False):
     '''
@@ -242,17 +249,24 @@ def peakFinder(x, y, thresh=-0.075, positive=False, min_deltaT=10., plot=False):
     diff = np.diff(above_thresh)
     start_indicies = np.where( diff > 0.5 )[0]
     if not start_indicies.any():
-        return []
+        return np.array([])
     stop_indicies = np.where( diff < -0.5)[0]
+    # Handle the (literal) edge cases
+    if stop_indicies[0] < start_indicies[0]:
+        stop_indicies = stop_indicies[1:]
+    if len(start_indicies) == len(stop_indicies)+1:
+        stop_indicies = np.append(stop_indicies, len(diff))
+    assert len(start_indicies) == len(stop_indicies)
     peak_indicies = np.zeros( len(start_indicies) )
     # Find the peak at each threshold crossing
     for i in range( len(start_indicies) ):
+        peak_region = y[start_indicies[i]:stop_indicies[i]]
         if positive:
-            peak = max(y[start_indicies[i]:stop_indicies[i]])
+            peak = max(peak_region)
         else:
-            peak = min(y[start_indicies[i]:stop_indicies[i]])
-        peak_indicies[i] = (np.where(y[start_indicies[i]:stop_indicies[i]] == peak )[0][0]
-                                + start_indicies[i])
+            peak = min(peak_region)
+        peak_indicies[i] = (np.where(peak_region == peak)[0][0]
+                            + start_indicies[i])
     # Loop through indicies and remove any within min_deltaT of each other
     dx = x[1] - x[0]
     peak_check = True
@@ -262,10 +276,8 @@ def peakFinder(x, y, thresh=-0.075, positive=False, min_deltaT=10., plot=False):
             peak_indicies = np.delete(peak_indicies, too_close[0]+1)
         else:
             peak_check = False
-    
     # Convert peaks to ints
-    peak_indicies = [int(peak) for peak in peak_indicies]
-    
+    peak_indicies = np.array([int(peak) for peak in peak_indicies])
     # Some plotting stuff - probably delete after debugging
     if plot:
         x_select = [x[i] for i in peak_indicies]

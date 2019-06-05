@@ -9,6 +9,7 @@ import itertools
 import time
 import numpy as np
 import matplotlib.pyplot as plt
+import config
 
 attributes = ["c{0}_horiz_offset",
               "c{0}_horiz_scale",
@@ -214,9 +215,15 @@ class TraceFileReader(FileReader):
             for section in chunked(binary_data, fp_size):
                 try:
                     y[counter, :] = np.fromstring(section[header_size:], count=nsamples, dtype=np.int8)*dy - y_off
+                    if config.baseline_correct_npoints:
+                        y[counter,:] = y[counter, :] - np.mean(y[counter, :config.baseline_correct_npoints])
+
                 except Exception as e:
                     print "Problem reading trace {0}: {1}".format(counter, e)
                 counter = counter + 1
+
+        #if config.baseline_correct_npoints:
+        #    y = y - np.mean(y[0, :config.baseline_correct_npoints])
 
         self._channel_data[channel] = y
         self._x = np.linspace(0, dx*nsamples, num=nsamples)*1e9 

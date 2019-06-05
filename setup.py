@@ -8,6 +8,7 @@ setup(name='slow-prototype',
       maintainer='Ed Leming',
       author_email="edward.leming@physics.ox.ac.uk",
       packages=["utils"],
+      py_modules=["config"],
       install_requires=["numpy", "scipy", "matplotlib"],
       scripts=glob("scripts/*")
       )

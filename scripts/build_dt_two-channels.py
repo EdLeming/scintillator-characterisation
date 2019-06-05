@@ -4,15 +4,10 @@ ROOT.PyConfig.IgnoreCommandLineOptions = True
 import numpy as np
 import matplotlib.pyplot as plt
 
+import config
 import utils.transient_calculations as calc
 import utils.digital_filters as digital_filters
 
-
-def calcCharge(x, y, termination=50.):
-    '''Calculate the 
-    '''
-    yc = (y - np.mean(y[:100])) / termination
-    return np.abs(np.trapz(yc,x*1e-9))
 
 if __name__ == "__main__":
     import argparse
@@ -33,6 +28,9 @@ if __name__ == "__main__":
     parser.add_argument("--plot", action='store_true', 
                         help="Plot multi-peak events")
     args = parser.parse_args()    
+
+    # Run root in batch mode
+    ROOT.gROOT.SetBatch(True)
     
     # Read in data
     myFileReader = file_reader.FileReader('')
@@ -64,16 +62,31 @@ if __name__ == "__main__":
     except KeyError as e:
         print "Couldn't find channel {0:d} in the passed data set".format(args.trigger_channel)
         sys.exit(0)
-        
+
+
     ##########################
     # Get an initial charge measurement for setting histogram limits
+    print "Calculating appropriate charge range for histos..."
     check_events = 10000
     if no_events < check_events:
         check_events = no_events
-    trigger_charge = np.zeros(check_events)
+    trigger_charge, signal_charge = np.zeros(check_events), np.zeros(check_events)
     for i in range(check_events):
-        trigger_charge[i] = calcCharge(x, trigger_traces[i,:])        
-    trigger_charge_end = round( (np.median(sorted(trigger_charge)[-100:])*1e10), 1)*1e2 #pC
+        trigger_clean = digital_filters.butter_lowpass_filter(trigger_traces[i,:], fs,
+                                                              cutoff=config.trigger_BW)
+        trigger_charge[i] = calc.calcWindowedCharge(x, trigger_clean,
+                                                    thresh=config.trigger_thresh,
+                                                    window=config.trigger_window)
+
+        signal_clean = digital_filters.butter_lowpass_filter(signal_traces[i,:], fs,
+                                                             cutoff=config.signal_BW)
+        signal_charge[i] = calc.calcWindowedCharge(x, signal_clean,
+                                                   thresh=config.signal_thresh,
+                                                   window=config.signal_window)
+        
+    trigger_charge_end = round( (np.median(sorted(trigger_charge)[-150:])*1e10), 1)*1e2 #pC
+    signal_charge_end = round( (np.median(sorted(signal_charge)[-150:])*1e10), 1)*1e2   #pC
+
     ##########################
     # Define a range of thresholds to apply on the trigger channel
     cf_thresholds = np.arange(0.05, 0.45, 0.05)
@@ -81,7 +94,6 @@ if __name__ == "__main__":
         
     #####################
     # ROOT stuff - book some histos
-    ROOT.gROOT.SetBatch(True)
     mean_signal_h = ROOT.TH1D("AverageSignalPulse", "", len(x), x[0], x[(len(x)-1)])
     mean_signal_h.GetXaxis().SetTitle("Time [ns]")
     mean_signal_h.GetYaxis().SetTitle("Average Voltage / {0:.2f} ns".format(dx))
@@ -90,9 +102,12 @@ if __name__ == "__main__":
     mean_trigger_h.GetXaxis().SetTitle("Time [ns]")
     mean_trigger_h.GetYaxis().SetTitle("Average Voltage / {0:.2f} ns".format(dx))
 
-    trigger_charge_h = ROOT.TH1D("TriggerCharge", "", 200, 0, trigger_charge_end*1.3)
+    trigger_charge_h = ROOT.TH1D("TriggerCharge", "", 200, 0, trigger_charge_end*1.5)
     trigger_charge_h.GetXaxis().SetTitle("Pulse integral [pC]")
 
+    signal_charge_h = ROOT.TH1D("SignalCharge", "", 200, 0, signal_charge_end*1.5)
+    signal_charge_h.GetXaxis().SetTitle("Pulse integral [pC]")
+    
     cf_histos, abs_histos = [], []
     cf_ntuple_strings, abs_ntuple_strings = [], []
     for j, fraction in enumerate(cf_thresholds):
@@ -134,16 +149,16 @@ if __name__ == "__main__":
     #################################
     # Loop over events
     for i in range(no_events):
-        signal_clean = digital_filters.butter_lowpass_filter(signal_traces[i,:], fs, cutoff=500e6)
+        signal_clean = digital_filters.butter_lowpass_filter(signal_traces[i,:], fs, cutoff=config.signal_BW)
         try:
-            peaks = calc.peakFinder(x, signal_clean, thresh=-0.07, min_deltaT=8., plot=False)
+            peaks = calc.peakFinder(x, signal_clean, thresh=config.signal_thresh, min_deltaT=8., plot=False)
         except IndexError as e:
             print "Event {0:d}: Signal peaks index error {1}".format(i, e)
             continue
         except ValueError as e:
             print "Event {0:d}: Signal peaks value error {1}".format(i, e)
             continue
-        if not peaks: # If the fast 'signal' pmt didn't see anything, continue
+        if not peaks.any(): # If the fast 'signal' pmt didn't see anything, continue
             continue
 
         # Calc timestamps for fast tube
@@ -160,9 +175,9 @@ if __name__ == "__main__":
             continue
             
         # Clean trigger tube signal and find timestamps
-        trigger_clean = digital_filters.butter_lowpass_filter(trigger_traces[i,:], fs, cutoff=500e6)
+        trigger_clean = digital_filters.butter_lowpass_filter(trigger_traces[i,:], fs, cutoff=config.trigger_BW)
         try:
-            trigger_peaks = calc.peakFinder(x, trigger_clean, thresh=-0.5, min_deltaT=20., plot=False)
+            trigger_peaks = calc.peakFinder(x, trigger_clean, thresh=config.trigger_thresh, min_deltaT=20., plot=False)
         except IndexError as e:
             print "Event {0:d}: Trigger peaks index error {1}".format(i, e)
             continue
@@ -171,19 +186,18 @@ if __name__ == "__main__":
             continue
         # Only continue is there is a single peak
         #if not len(trigger_peaks) == 1:
-        if len(trigger_peaks) < 1:
+        if not trigger_peaks.any():
             continue
 
         # Calc timestamps for trigger events
         for j, fraction in enumerate(cf_thresholds):
             thresh = trigger_clean[trigger_peaks[0]]*fraction
-            pl = False
             try:
                 cf_trigger_times[j] = calc.calcLeadingEdgeTimestamp(x,
                                                                     trigger_clean,
                                                                     trigger_peaks[0],
                                                                     thresh,
-                                                                    plot=pl)
+                                                                    plot=False)
             except IndexError as e:
                 idx_error = True
                 print "Event {0:d}: Constant fraction evaluation error {1}".format(i, e)
@@ -205,13 +219,18 @@ if __name__ == "__main__":
         if idx_error:
             continue
         # Calc charges for this event - these have to be in arrays for the ntuple to get filled correctly
-        trigger_Q = calcCharge(x, trigger_clean)
-        signal_Q = calcCharge(x, signal_clean)
+        trigger_Q = calc.calcWindowedCharge(x, trigger_clean,
+                                            thresh=config.trigger_thresh,
+                                            window=config.trigger_window)
+        signal_Q = calc.calcWindowedCharge(x, signal_clean,
+                                           thresh=config.signal_thresh,
+                                           window=config.signal_window)
         # Fill histograms
         signal_h.SetContent( np.array( signal_clean, dtype=np.float64) )
         trigger_h.SetContent( np.array( trigger_clean, dtype=np.float64) )
         mean_signal_h.Add(signal_h)
         mean_trigger_h.Add(trigger_h)
+        signal_charge_h.Fill(signal_Q*1e12)
         trigger_charge_h.Fill(trigger_Q*1e12)
         for j, trig in enumerate(cf_trigger_times):
             for sig in fast_times:
@@ -241,13 +260,13 @@ if __name__ == "__main__":
                                                                        (end-start),
                                                                        (end-start)/(i+1))
     outfile = ROOT.TFile(args.outfile, "RECREATE")
-    trigger_charge_h.Write()
-
     mean_signal_h.Scale( 1. / counter )
     mean_trigger_h.Scale( 1. / counter )
     
     mean_signal_h.Write()
     mean_trigger_h.Write()
+    trigger_charge_h.Write()
+    signal_charge_h.Write()
     for histo in cf_histos:
         histo.Write()
     for histo in abs_histos:
