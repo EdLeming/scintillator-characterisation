@@ -15,7 +15,6 @@ def butter_lowpass_filter(data, fs, cutoff=750e6, order=5):
     y = filtfilt(b, a, data)
     return y
 
-
 if __name__ == "__main__":
     import argparse
     import time

@@ -13,7 +13,7 @@ trigger_BW     = 300e6  # Hz
 NEMO_BW        = 50e6   # Hz
 
 # Peak finding thresholds
-signal_thresh  = -0.03  # V
+signal_thresh  = -0.05  # V
 trigger_thresh = -0.2   # V
 NEMO_thresh    = -0.015 # V
 

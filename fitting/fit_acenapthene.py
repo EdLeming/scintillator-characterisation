@@ -24,6 +24,8 @@ if __name__ == "__main__":
                         help='Select only events in which the NEMO tube measured a charge greater than this cut [50pC]')
     parser.add_argument('-c', '--trigger_cut', type=float, default=200,
                         help='Select only events in the trigger tube measured a charge greater than this cut [100pC]')
+    parser.add_argument('-s', '--signal_cut', type=float, default=40,
+                        help="Charge cut to be applied in pC [None]")
     
     args = parser.parse_args()
 
@@ -34,18 +36,20 @@ if __name__ == "__main__":
     # Get data file
     x_array = np.arange(-100, 500, 0.2)
     pdf_h =  root_tools.plotFromNtuple(args.dataFile,
-                                     x=x_array,
-                                     threshold=args.threshold,
-                                     trigger_cut=args.trigger_cut,
-                                     nemo_cut=args.nemo_cut)    
+                                       x=x_array,
+                                       threshold=args.threshold,
+                                       trigger_cut=args.trigger_cut,
+                                       nemo_cut=args.nemo_cut,
+                                       signal_cut=args.signal_cut)
     x,y = root_tools.getXY(pdf_h)
     dx = x[1] - x[0]
 
     # Get system response
     response_h =  root_tools.plotFromNtuple(args.responseFile,
-                                          x=x_array,
-                                          threshold=args.threshold,
-                                          trigger_cut=args.trigger_cut)
+                                            x=x_array,
+                                            threshold=args.threshold,
+                                            trigger_cut=args.trigger_cut,
+                                            signal_cut=args.signal_cut)
 
     # Set up minimiser object with custom class object where we define our function
     mini = ROOT.Math.Factory.CreateMinimizer("Minuit2", "Migrad")

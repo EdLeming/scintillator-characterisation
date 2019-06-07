@@ -151,7 +151,10 @@ if __name__ == "__main__":
     for i in range(no_events):
         signal_clean = digital_filters.butter_lowpass_filter(signal_traces[i,:], fs, cutoff=config.signal_BW)
         try:
-            peaks = calc.peakFinder(x, signal_clean, thresh=config.signal_thresh, min_deltaT=8., plot=False)
+            peaks = calc.peakFinder(x, signal_clean,
+                                    thresh=config.signal_thresh,
+                                    min_deltaT=config.signal_window[1],
+                                    plot=False)
         except IndexError as e:
             print "Event {0:d}: Signal peaks index error {1}".format(i, e)
             continue
@@ -177,7 +180,10 @@ if __name__ == "__main__":
         # Clean trigger tube signal and find timestamps
         trigger_clean = digital_filters.butter_lowpass_filter(trigger_traces[i,:], fs, cutoff=config.trigger_BW)
         try:
-            trigger_peaks = calc.peakFinder(x, trigger_clean, thresh=config.trigger_thresh, min_deltaT=20., plot=False)
+            trigger_peaks = calc.peakFinder(x, trigger_clean,
+                                            thresh=config.trigger_thresh,
+                                            min_deltaT=config.trigger_window[1],
+                                            plot=False)
         except IndexError as e:
             print "Event {0:d}: Trigger peaks index error {1}".format(i, e)
             continue
@@ -237,6 +243,10 @@ if __name__ == "__main__":
                 dt = sig - trig
                 cf_histos[j].Fill(dt)
                 ntuple_cf_dt[j] = dt
+                if j == 0 and dt > 98 and dt < 99:
+                    plt.plot(x, signal_clean)
+                    plt.plot(x, trigger_clean)
+                    plt.show()
         for j, trig in enumerate(abs_trigger_times):
             for sig in fast_times:
                 dt = sig - trig

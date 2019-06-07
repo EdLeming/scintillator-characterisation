@@ -143,7 +143,8 @@ def plotFromNtuple(fname,
                    x=np.arange(-50,400,0.2),
                    threshold="cf_0p05",
                    trigger_cut=False,
-                   nemo_cut=False):
+                   nemo_cut=False,
+                   signal_cut=False):
     '''Read ntuple from file and make pulse separation plot
     '''
     # Read in file and check ntuple exists
@@ -165,9 +166,14 @@ def plotFromNtuple(fname,
     if nemo_cut and not ntuple.GetBranchStatus("NemoQ"):
         print "Can't find branch NemoQ in ntuple"
         sys.exit(0)
+    if signal_cut and not ntuple.GetBranchStatus("SignalQ"):
+        print "Can't find branch SignalQ in ntuple"
+        sys.exit(0)
 
     # Make containers to hold event by event results and set branch addresses
     # - These have to be arrays because of root-python interface
+    eventID = np.zeros( 1, dtype=np.float32)
+    ntuple.SetBranchAddress("eventID", eventID)
     thresh = np.zeros( 1, dtype=np.float32)
     ntuple.SetBranchAddress(threshold, thresh)
     if trigger_cut:
@@ -176,14 +182,20 @@ def plotFromNtuple(fname,
     if nemo_cut:
         nemoQ = np.zeros( 1, dtype=np.float32)
         ntuple.SetBranchAddress("NemoQ", nemoQ)
+    if signal_cut:
+        signalQ = np.zeros( 1, dtype=np.float32)
+        ntuple.SetBranchAddress("SignalQ", signalQ)
 
     # Put the requested data into a histogram and plot
     hist_dt = ROOT.TH1D("dt", "", len(x)-1, x)
     title = "Thresh: {0}".format(threshold)
     if trigger_cut:
-        title = "{0}, TriggerQ > {1:.1f}".format(title, trigger_cut)
+        title = "{0}, TriggerQ > {1:.1f} pC".format(title, trigger_cut)
     if nemo_cut:
-        title = "{0}, NemoQ > {1:.1f}".format(title, nemo_cut)
+        title = "{0}, NemoQ > {1:.1f} pC".format(title, nemo_cut)
+    if signal_cut:
+        title = "{0}, SignalQ < {1:.1f} pC".format(title, signal_cut)
+        
     hist_dt.SetTitle(title)
     hist_dt.GetXaxis().SetTitle("Pulse separation [ns]")
     for i, entry in enumerate(ntuple):
@@ -192,6 +204,9 @@ def plotFromNtuple(fname,
                 continue
         if nemo_cut:
             if nemoQ[0] < nemo_cut:
+                continue
+        if signal_cut:
+            if signalQ[0] > signal_cut:
                 continue
         hist_dt.Fill(thresh[0])
 
@@ -226,15 +241,18 @@ if __name__ == "__main__":
                         help="Charge cut to be applied in pC [None]")
     parser.add_argument('-c', '--trigger_cut', type=float, default=False,
                         help="Charge cut to be applied in pC [None]")
+    parser.add_argument('-s', '--signal_cut', type=float, default=False,
+                        help="Charge cut to be applied in pC [None]")
 
     args = parser.parse_args()
 
     can_dt = ROOT.TCanvas("c1", "c1")
     hist_dt =  plotFromNtuple(args.fname,
-                             x=np.arange(-50,400,0.2),
-                             threshold=args.threshold,
-                             trigger_cut=args.trigger_cut,
-                             nemo_cut=args.nemo_cut)
+                              x=np.arange(-50,800,.2),
+                              threshold=args.threshold,
+                              trigger_cut=args.trigger_cut,
+                              nemo_cut=args.nemo_cut,
+                              signal_cut=args.signal_cut)
 
     hist_dt.Draw()
     can_dt.Update()

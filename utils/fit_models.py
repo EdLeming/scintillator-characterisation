@@ -141,9 +141,11 @@ class  SingleExponential(ResponseModel):
         self._pars = pars
         # Define new timebase
         dx = self._dx
-        shift_x = self._x - pars[1]
+        shift =  round(pars[1]*100)*0.01 # round to 50ps
+        shift_x = self._x - shift
         zero_index = np.where(shift_x > 0)[0]-1
         raw_x = shift_x[zero_index]
+        #print pars[1], shift, raw_x
         # Define optical model
         scint = (1-pars[4])*self.ScintillatorModel(raw_x, pars[2], pars[3])
         ceren = (pars[4])*self.CerenkovModel(raw_x)
