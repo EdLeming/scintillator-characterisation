@@ -191,8 +191,7 @@ if __name__ == "__main__":
             print "Event {0:d}: Trigger peaks value error {1}".format(i, e)
             continue
         # Only continue is there is a single peak
-        #if not len(trigger_peaks) == 1:
-        if not trigger_peaks.any():
+        if not len(trigger_peaks) == 1:
             continue
 
         # Calc timestamps for trigger events
@@ -243,10 +242,6 @@ if __name__ == "__main__":
                 dt = sig - trig
                 cf_histos[j].Fill(dt)
                 ntuple_cf_dt[j] = dt
-                if j == 0 and dt > 98 and dt < 99:
-                    plt.plot(x, signal_clean)
-                    plt.plot(x, trigger_clean)
-                    plt.show()
         for j, trig in enumerate(abs_trigger_times):
             for sig in fast_times:
                 dt = sig - trig

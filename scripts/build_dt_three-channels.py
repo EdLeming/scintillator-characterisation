@@ -30,6 +30,7 @@ if __name__ == "__main__":
 
     # Run root in batch mode
     ROOT.gROOT.SetBatch(False)
+    print config.trigger_thresh
     
     ##########################
     # Read in data and loop over each save channel
@@ -209,7 +210,8 @@ if __name__ == "__main__":
         except ValueError as e:
             print "Event {0:d}: Signal peak finder index error {1}".format(i, e)
             continue
-        if not signal_peaks.any(): # If the fast 'signal' pmt didn't see anything, continue
+        #if not signal_peaks.any(): # If the fast 'signal' pmt didn't see anything, continue
+        if not len(signal_peaks) == 1: # If the fast 'signal' pmt didn't see anything, continue            
             continue
 
         # Clean trigger signal and find peaks
