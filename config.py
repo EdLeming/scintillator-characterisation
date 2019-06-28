@@ -14,7 +14,7 @@ NEMO_BW        = 50e6   # Hz
 
 # Peak finding thresholds
 signal_thresh  = -0.05  # V
-trigger_thresh = -0.2   # V
+trigger_thresh = -0.7   # V
 NEMO_thresh    = -0.015 # V
 
 # Integration window for charge measurement (applied about first peak)

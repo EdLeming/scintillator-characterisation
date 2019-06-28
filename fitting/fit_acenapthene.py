@@ -20,9 +20,9 @@ if __name__ == "__main__":
                         help="Path to data file containing a measurement of the system timing resolution")
     parser.add_argument('-t', '--threshold', type=str, default='cf_0p05',
                         help='Leading edge threshold used to calculate tirgger and signal pulse separation')
-    parser.add_argument('-q', '--nemo_cut', type=float, default=100,
+    parser.add_argument('-q', '--nemo_cut', type=float, default=20,
                         help='Select only events in which the NEMO tube measured a charge greater than this cut [50pC]')
-    parser.add_argument('-c', '--trigger_cut', type=float, default=200,
+    parser.add_argument('-c', '--trigger_cut', type=float, default=400,
                         help='Select only events in the trigger tube measured a charge greater than this cut [100pC]')
     parser.add_argument('-s', '--signal_cut', type=float, default=40,
                         help="Charge cut to be applied in pC [None]")
@@ -34,7 +34,7 @@ if __name__ == "__main__":
     ROOT.gStyle.SetOptStat(0)
 
     # Get data file
-    x_array = np.arange(-100, 500, 0.2)
+    x_array = np.arange(0, 300, 0.12)
     pdf_h =  root_tools.plotFromNtuple(args.dataFile,
                                        x=x_array,
                                        threshold=args.threshold,
@@ -50,7 +50,10 @@ if __name__ == "__main__":
                                             threshold=args.threshold,
                                             trigger_cut=args.trigger_cut,
                                             signal_cut=args.signal_cut)
-
+    
+    #can=ROOT.TCanvas("c1","c1")
+    #pdf_h.Draw("")
+    #can.Update()
     # Set up minimiser object with custom class object where we define our function
     mini = ROOT.Math.Factory.CreateMinimizer("Minuit2", "Migrad")
     mini.SetMaxFunctionCalls(10000000)
@@ -65,28 +68,28 @@ if __name__ == "__main__":
     # Get some useful values from the hist for seeding fit
     N = pdf_h.Integral()
     peak_centre = pdf_h.GetXaxis().GetBinLowEdge( pdf_h.GetMaximumBin() )
-    trace_start = x[pdf_h.FindFirstBinAbove( 5 )]
+    trace_start = x[pdf_h.FindFirstBinAbove( 10 )]
     trace_end = pdf_h.GetXaxis().GetBinLowEdge( pdf_h.GetXaxis().GetNbins() )
     fit_start = trace_start - myMinimizer._lead_time
 
     pars = [N,
-            fit_start+.6, # Account for offset in fit function
-            2.,
-            40.,
+            fit_start+.7, # Account for offset in fit function
+            1.7,
+            46.,
             0.01]
 
     # Set initial values and constraints for fit
     #mini.SetFixedVariable(0,"N", pars[0])
-    mini.SetVariable(0,"N", pars[0], 1)
-    mini.SetVariable(1,"t_0", pars[1], dx/10.)
+    mini.SetVariable(0,"N", pars[0], 1.)
+    mini.SetVariable(1,"t_0", pars[1], dx) # ns
     mini.SetVariable(2,"Rise", pars[2], 0.001)
-    mini.SetVariable(3,"Fall", pars[3], 0.001)
-    mini.SetVariable(4,"R_cs", pars[4], 0.00001)
-    mini.SetVariableLimits(0, N*0.95, N*1.05)
-    mini.SetVariableLimits(1, fit_start+0.25, fit_start+1.5)
-    mini.SetVariableLimits(2, 0.05, 2.5)
-    mini.SetVariableLimits(3, 5., 20.)
-    mini.SetVariableLimits(4, 0.1, 0.005)
+    mini.SetVariable(3,"Fall", pars[3], 0.01)
+    mini.SetVariable(4,"R_cs", pars[4], 0.0001)
+    mini.SetVariableLimits(0, N*0.999, N)
+    mini.SetVariableLimits(1, fit_start+0.3, fit_start+2.)
+    mini.SetVariableLimits(2, 1., 3.5)
+    mini.SetVariableLimits(3, 30., 50.)
+    mini.SetVariableLimits(4, 0.001, 0.2)
 
     start = time.time()
     mini.Minimize()
@@ -109,7 +112,7 @@ if __name__ == "__main__":
 
     # Get fit and data - offset appropriately for plotting
     fit_x, fit = myMinimizer.FitFunc( pars )
-    offset = len(myMinimizer._x) - len(fit_x) + myMinimizer._lead_time_offset
+    offset = len(myMinimizer._x) - len(fit_x)
     data = myMinimizer._bin_contents[offset:]
     plot_x = fit_x[:len(data)]
 
@@ -174,17 +177,17 @@ if __name__ == "__main__":
     # Draw a line on the inlay plot to guide the eye
     p2.cd()
     last_value = data_h.GetBinLowEdge( last_bin )
-    line = ROOT.TLine(-10,0,last_value,0)
+    line = ROOT.TLine(-myMinimizer._lead_time,0,last_value,0)
     line.SetLineColorAlpha(ROOT.kRed, 0.9)
     line.SetLineStyle(2)
-    line.Draw()
+    #line.Draw()
     
     # Some extra plots
     can_chi2 = ROOT.TCanvas("Chi2", "Chi2")
     chi2_h = ROOT.TH1D("Chi2","Chi2 per bin distribution: Best fit",100, 0, 10)
     for i, entry in enumerate(data):
-        diff = entry - fit[i]
-        chi2_h.Fill((diff*diff)/fit[i])
+            diff = entry - fit[i]
+            chi2_h.Fill((diff*diff)/fit[i])
     chi2_h.GetXaxis().SetTitle("Chi2")
     chi2_h.Draw("")
 

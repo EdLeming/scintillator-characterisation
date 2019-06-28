@@ -11,7 +11,7 @@ class ResponseModel( ROOT.TPyMultiGenFunction ):
         It generates a model from a set of passed parameters and returns a teststatisic taken
         against the passed data set.
     '''
-    def __init__(self, data_h, time_response_h, lead_time=5, nDim=5):
+    def __init__(self, data_h, time_response_h, lead_time=5, nDim=5, likelihood=False):
         ''' Initialise a response model datafile
         '''
         # Some required definitions
@@ -25,7 +25,7 @@ class ResponseModel( ROOT.TPyMultiGenFunction ):
         for i, ent in enumerate(y):
             errors.append(np.sqrt(ent))
         self._x = np.array(x, dtype=np.float128)
-        self._dx = round( (x[1] - x[0])*100)*0.01 # round to 10ps resolution
+        self._dx = round( (x[1] - x[0])*100)*(1/100.) # round to 10ps resolution
         self._bin_contents = np.array(y, dtype=np.float128)
         self._bin_contents_errors = np.array(errors, dtype=np.float128)
         # Get and store system timing resolution histogram a private array
@@ -34,20 +34,21 @@ class ResponseModel( ROOT.TPyMultiGenFunction ):
             print "PDF and resolution histos have different binning: {0:e}, {1:e}".format(self._dx,
                                                                                           det_res_x[1] - det_res_x[0])
             sys.exit()
+        self._res_x = det_res_x
         self._resolution = det_res_y
         # How much 'lead time' should we include before the fitted t0?
         self._lead_time = lead_time #ns 
         self._lead_time_offset = int( self._lead_time / self._dx )
         # Some vairable for the chi2 calculations
         self._nActive_bins=0
-        self._chi2 = 0
+        self._chi2 = 0        
         
     def NDim(self):
         '''REQUIRED FOR MINIMIZER TO WORK
         How many dimensions in this fit
         '''
         return self._nDim
-    
+
     def DoEval(self, pars):
         '''REQUIRED FOR MINIMIZER TO WORK
         Function called by ROOT minimizer
@@ -66,7 +67,7 @@ class ResponseModel( ROOT.TPyMultiGenFunction ):
         '''Calculate the Pearsons Chi2
         '''
         chi2, self._chi2, self._nActive_bins  = 0, 0, 0
-        offset = len(self._x) - len(fit) + self._lead_time_offset    
+        offset = len(self._x) - len(fit)
         data = self._bin_contents[offset:]
         for i, entry in enumerate(data):
             if entry < 1:
@@ -75,7 +76,18 @@ class ResponseModel( ROOT.TPyMultiGenFunction ):
             chi2 = chi2 + (diff*diff / fit[i])
             self._nActive_bins = self._nActive_bins + 1
         return chi2
-    
+
+    def Likelihood(self, fit):
+        '''Caclulate the likelihood
+        '''
+        pdf = fit / np.trapz(fit, dx=1)
+
+        offset = len(self._x) - len(fit)
+        data = self._bin_contents[offset:]
+
+        weights = np.log( data.sum() * pdf )
+        return -(weights * data).sum()
+        
     def ScintillatorModel(self, x, rise, fall, normalise=False):
         f = (np.exp(-x/fall) - np.exp(-x/rise)) / (fall - rise)
         if normalise:
@@ -111,9 +123,9 @@ class ResponseModel( ROOT.TPyMultiGenFunction ):
         left = y_max_bin
         right = len(y_trimmed) - left
         if left > right:
-            padding = (0, left-right)
+            padding = (0, left-right-1)
         else:
-            padding = (right-left, 0)
+            padding = (right-left-1, 0)
         # Make symetric arrays
         y_symmetric = np.pad(y_trimmed, padding,'constant',constant_values=(0,0))
         y_symmetric = (y_symmetric / np.trapz(y_symmetric, dx=dx))
@@ -141,21 +153,24 @@ class  SingleExponential(ResponseModel):
         self._pars = pars
         # Define new timebase
         dx = self._dx
-        shift =  round(pars[1]*100)*0.01 # round to 50ps
+        shift =  round(pars[1]*(1/dx))*(dx) # round to same precision as dx
         shift_x = self._x - shift
         zero_index = np.where(shift_x > 0)[0]-1
         raw_x = shift_x[zero_index]
-        #print pars[1], shift, raw_x
         # Define optical model
         scint = (1-pars[4])*self.ScintillatorModel(raw_x, pars[2], pars[3])
         ceren = (pars[4])*self.CerenkovModel(raw_x)
         total = scint + ceren
         # Define variables to select appropriate part of convolved array
         diff = len(self._resolution) - len(raw_x)
-        half_index = int((len(raw_x)+diff)/2.)
+        half_resolution = int(len(self._resolution)/2.)
+        half_signal = int(np.ceil(len(total)/2.))
+        centre = int(np.ceil(half_signal+half_resolution))
+        begin = centre - half_signal - self._lead_time_offset
+        end = centre + half_signal - self._lead_time_offset
         # Do convolution
-        total_response = np.convolve(total, self._resolution)[half_index-self._lead_time_offset:-half_index]
+        total_response = np.convolve(total, self._resolution)[begin:end]
         # Normalise to one and scale response to fit NEntries in data histogram
         total_response = pars[0]*(total_response / np.trapz(total_response, dx=1))
-        total_x = np.arange(-self._lead_time, (len(total_response)*dx)-self._lead_time, dx)
+        total_x = np.arange(-self._lead_time, (len(total_response)*dx)-self._lead_time, dx)#+raw_x[0]
         return total_x, total_response
